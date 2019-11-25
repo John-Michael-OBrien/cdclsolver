@@ -4,7 +4,7 @@ using System.Text;
 
 namespace cdclsolver
 {
-    class CNFVariable
+    public class CNFVariable
     {
         public enum CNFStates
         {
@@ -16,11 +16,16 @@ namespace cdclsolver
         public CNFStates Value { get; }
         public String Name { get; }
 
-
-        CNFVariable(String new_name, CNFStates new_value)
+        public CNFVariable(String new_name, CNFStates new_value)
         {
             Name = new_name;
             Value = new_value;
         }
+
+        public override int GetHashCode()
+        {
+            return Name.GetHashCode();
+        }
+
     }
 }

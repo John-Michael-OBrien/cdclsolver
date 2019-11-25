@@ -4,9 +4,9 @@ using System.Text;
 
 namespace cdclsolver
 {
-    class DirectedGraph
+    public class DirectedGraph
     {
-        class DirectedGraphNode<NodeType>
+        public class DirectedGraphNode<NodeType>
         {
             // Property getters and setters
             public NodeType Data { get; set; }
@@ -14,17 +14,16 @@ namespace cdclsolver
 
             private void _init_connections(IEnumerable<DirectedGraphNode<NodeType>> connections = null)
             {
-                // Make our connection set
-                ConnectedNodes = new HashSet<DirectedGraphNode<NodeType>>();
-                
                 // If we've been handed a list of connections to add
                 if (!(connections is null))
                 {
-                    // Go through the list
-                    foreach(DirectedGraphNode<NodeType> connection in connections) {
-                        // And add them.
-                        ConnectedNodes.Add(connection);                        
-                    }
+                    // Make our connection set with the variables in it.
+                    ConnectedNodes = new HashSet<DirectedGraphNode<NodeType>>(connections);
+                }
+                else
+                {
+                    // Make a blank connection set
+                    ConnectedNodes = new HashSet<DirectedGraphNode<NodeType>>();
                 }
             }
 
