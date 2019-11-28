@@ -7,162 +7,132 @@ namespace cdclsolver
 {
     class Solver
     {
-        public struct CNFStackEntry
+        class UnsatisfiableException : Exception
         {
-            public String Variable;
-            public CNFTruth Truth;
-            public CNFClause RelatedClause;
-            public bool Decided;
-            public int Depth;
+            public UnsatisfiableException(string message) : base(message) { }
         }
 
-        public struct ClauseInfo
+        private HashSet<CNFClause> _clause_db = new HashSet<CNFClause>();
+        private List<String> _assignment_queue = new List<string>();
+        private AssignmentStack _assignment_stack = new AssignmentStack();
+        HashSet<String> _detected_variables = new HashSet<String>();
+
+        private bool CompareStateToTruth(CNFStates state, CNFTruth truth)
         {
-            public int UnknownAssignments;
-            public CNFTruth Truth;
+            if ((state == CNFStates.Asserted && truth == CNFTruth.True) || state == CNFStates.Negated && truth == CNFTruth.False)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
 
-        private HashSet<CNFClause> _clause_db;
-        private List<CNFStackEntry> _assignment_stack;
-        private List<String> _assignment_queue;
-        private Dictionary<String, CNFTruth> _known_assignments;
 
-        
-
-        public ClauseInfo ComputeTruth(CNFClause clause)
+        private CNFTruth ComputeValidity(CNFClause clause)
         {
-            CNFTruth result = CNFTruth.Unknown;
-            CNFTruth var_truth;
             int count = 0;
+            // Check each variable in the clause
             foreach (KeyValuePair<String, CNFStates> var in clause)
             {
-                if (_known_assignments.TryGetValue(var.Key, out var_truth))
+                // If we find one,
+                if (_assignment_stack.ContainsVariable(var.Key))
                 {
+                    // Mark that we found it.
                     count++;
-                    if ((int) var_truth == (int) var.Value)
+                    // If we match, then the clause as a whole is true.
+                    if (CompareStateToTruth(var.Value, _assignment_stack.GetVariable(var.Key)))
                     {
-                        result = CNFTruth.True;                        
+                        return CNFTruth.True;
                     }
                 }
             }
 
-            if (count == clause.Count && result == CNFTruth.Unknown)
+            // If we failed to match EVERY clause, then we know we're false (Unsatisfiable, to be detected upstream of us.)
+            if (count == clause.Count)
             {
-                result = CNFTruth.False;
-                throw new Exception("Unsatisfiable!");
+                return CNFTruth.False;
             }
 
-            return new ClauseInfo() {
-                UnknownAssignments = clause.Count - count,
-                Truth = result
-            };
+            // If we didn't find a true assignment, but a few variables were of unknown state, then we're also unknow.
+            return CNFTruth.Unknown;
+        }
+
+        public void AddClause(CNFClause clause)
+        {
+            _clause_db.Add(clause);
+            // And pull all of the clause's variables in.
+            foreach (String var_name in clause.Keys)
+            {
+                _detected_variables.Add(var_name);
+            }
         }
 
         private void Preprocess()
         {
-            bool done = false;
-            while (!done)
+            foreach (CNFClause clause in _clause_db)
             {
-                foreach (CNFClause clause in _clause_db)
+                if (clause.Count == 1)
                 {
-                    done = true;
+                    CNFTruth truth;
 
-                    ClauseInfo info = ComputeTruth(clause);
+                    // Get the only variable
+                    KeyValuePair<String, CNFStates> unit_var = clause.First();
 
-                    // If a clause has only one element (A unit clause)
-                    if (info.UnknownAssignments == 1)
+                    // 
+                    if (unit_var.Value == CNFStates.Asserted)
                     {
-                        // Then we know for sure the necessary state of this value in all satisfying assignments.
-                        KeyValuePair<String, CNFStates> unit_var = clause.First();
-                        String var_name = unit_var.Key;
-
-                        // Get what value that is...
-                        CNFTruth truth;
-                        if (unit_var.Value == CNFStates.Asserted)
-                        {
-                            truth = CNFTruth.True;
-                        }
-                        else
-                        {
-                            truth = CNFTruth.False;
-                        }
-
-                        // And if we already know something about this variable
-                        if (_known_assignments.ContainsKey(var_name))
-                        {
-                            // Check if it agrees. If it doesn't then this is a contradiction!
-                            if (_known_assignments[var_name] != truth)
-                            {
-                                //TODO: Make this an actual thing. This is only good for debugging.
-                                throw new Exception("NotSatisfiable!");
-                            }
-                        }
-                        else
-                        {
-                            // Otherwise record what we know.
-                            _known_assignments.Add("var_name", truth);
-                        }
-
-                        // Known values are placed at the beginning to ensure that they all are grouped together
-                        _assignment_stack.Insert(0, new CNFStackEntry
-                        {
-                            Variable = var_name,
-                            Decided = false,
-                            RelatedClause = clause,
-                            Truth = truth,
-                            Depth = 0
-                        });
-
-                        // If the variable is still in the assignment queue, pull it. We know it's value.
-                        if (_assignment_queue.Contains(var_name))
-                        {
-                            _assignment_queue.Remove(var_name);
-                        }
-
-
-
-                        // Remove all clauses where we see our now known variable (They're satisfied for sure and don't matter now.)
-                        _clause_db.RemoveWhere(test_clause => test_clause.ContainsKey(var_name) ? test_clause[var_name] == unit_var.Value : false);
-                        foreach (CNFClause test_clause in _clause_db.Where(test_clause => test_clause.ContainsKey(var_name)).ToList())
-                        {
-
-                        }
-
-                        done = false;
-                        break;
+                        truth = CNFTruth.True;
                     }
+                    else
+                    {
+                        truth = CNFTruth.False;
+                    }
+                    // Add the variable to the stack
+                    if (!_assignment_stack.AddKnownVariable(unit_var.Key, truth, clause))
+                    {
+                        throw new UnsatisfiableException("Unable to satisfy clauses");
+                    }
+                    // And pull it out of the assignment queue.
+                    _assignment_queue.Remove(unit_var.Key);
                 }
+            }
+
+            // Remove any clauses that are KNOWN resolved.
+            foreach (AssignmentStackEntry entry in _assignment_stack.Where(item => item.Depth == 0))
+            {
+                _clause_db.Remove(entry.RelatedClause);
             }
         }
-        public void Solve(CNFFormula formula)
+
+        public void Solve()
         {
-            // Initialize the object
-            _clause_db = new HashSet<CNFClause>();
-            _known_assignments = new Dictionary<string, CNFTruth>();
-            _assignment_queue = new List<string>();
-            _assignment_stack = new List<CNFStackEntry>();
-
-            HashSet<String> variables = new HashSet<String>();
-
-            // Load the clauses into the clause database and get a record of all of the necessary assignments.
-            foreach (CNFClause clause in formula)
-            {
-                _clause_db.Add(clause);
-                // And pull all of the clause's variables in.
-                foreach (String var_name in clause.Keys)
-                {
-                    variables.Add(var_name);
-                }
-            }
-
             // Mark all of the variables as needing to be done.
             // NOTE: We could just keep the HashSet as our queue, but the problem is that it doens't concern itself with order.
             // Though this implementation doesn't presently support reordering, this is an important part of such algorithms,
             // and I'd like to implement this program in a way that further optimizations don't require refactoring the whole
             // program, especially when this is only done once on the smallest amount of data.
-            _assignment_queue = new List<string>(variables);
+            _assignment_queue = new List<string>(_detected_variables);
 
             Preprocess();
+            Console.WriteLine("After Preprocessing:");
+            Console.WriteLine("Queue: " + String.Join(",", _assignment_queue));
+            Console.WriteLine("Stack:");
+            Console.WriteLine(_assignment_stack);
+            Console.WriteLine("Clause DB:");
+            Console.WriteLine(String.Join("\n", _clause_db));
+        }
+
+        // Convienence Wrapper
+        public void Solve(CNFFormula formula)
+        {
+            foreach (CNFClause clause in formula)
+            {
+                AddClause(clause);
+            }
+
+            Solve();
         }
     }
 }

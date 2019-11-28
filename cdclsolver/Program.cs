@@ -7,41 +7,37 @@ namespace cdclsolver
     {
         static void Main(string[] args)
         {
-            CNFFormula formula = new CNFFormula() {
-                new CNFClause()
+            Solver mysolver = new Solver();
+            mysolver.AddClause(new CNFClause()
                 {
                     { "A", CNFStates.Asserted },
                     { "B", CNFStates.Asserted }
-                },
-                new CNFClause()
+                });
+            mysolver.AddClause(new CNFClause()
                 {
                     { "B", CNFStates.Asserted },
                     { "C", CNFStates.Asserted }
-                },
-                new CNFClause()
+                });
+            mysolver.AddClause(new CNFClause()
                 {
                     { "C", CNFStates.Asserted },
                     { "A", CNFStates.Negated }
-                },
-                new CNFClause()
+                });
+            mysolver.AddClause(new CNFClause()
                 {
                     { "A", CNFStates.Asserted },
                     { "B", CNFStates.Asserted }
-                },
-                new CNFClause()
+                });
+            mysolver.AddClause(new CNFClause()
                 {
                     { "A", CNFStates.Asserted }
-                }
-            };
+                });
+            mysolver.AddClause(new CNFClause()
+                {
+                    { "C", CNFStates.Negated }
+                });
 
-
-            Solver mysolver = new Solver();
-            mysolver.Solve(formula);
-
-            Console.WriteLine(formula);
-            foreach (CNFClause clause in formula) {
-                Console.WriteLine(clause);
-            }
+            mysolver.Solve();
         }
     }
 }
