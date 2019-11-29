@@ -1,4 +1,5 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
@@ -69,33 +70,71 @@ namespace cdclsolver
             }
         }
 
-        private void Preprocess()
+        public KeyValuePair<String, CNFStates>? GetNewKnownVariable(CNFClause clause)
         {
-            foreach (CNFClause clause in _clause_db)
+            int unknown_vars = clause.Count;
+            KeyValuePair<String, CNFStates>? new_var = null;
+
+            foreach(KeyValuePair<String, CNFStates> var in clause)
             {
-                if (clause.Count == 1)
+                if (_assignment_stack.ContainsVariable(var.Key))
                 {
-                    CNFTruth truth;
-
-                    // Get the only variable
-                    KeyValuePair<String, CNFStates> unit_var = clause.First();
-
-                    // 
-                    if (unit_var.Value == CNFStates.Asserted)
-                    {
-                        truth = CNFTruth.True;
+                    if (CompareStateToTruth(var.Value, _assignment_stack.GetVariable(var.Key))) {
+                        unknown_vars--;
                     }
                     else
                     {
-                        truth = CNFTruth.False;
+                        new_var = var;
                     }
-                    // Add the variable to the stack
-                    if (!_assignment_stack.AddKnownVariable(unit_var.Key, truth, clause))
+                }
+                else
+                {
+                    new_var = var;
+                }
+            }
+            if (unknown_vars == 1)
+            {
+                return new_var;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        private void Preprocess()
+        {
+            bool done = false;
+            while (!done)
+            {
+                done = true;
+                foreach (CNFClause clause in _clause_db)
+                {
+                    KeyValuePair<String, CNFStates>? new_var = GetNewKnownVariable(clause);
+                    CNFTruth truth;
+
+                    // This should be inside the if, but the compliler worries that "new_var?.value" might change the null state,
+                    // so we just do a nullable operation out here, and then do an explicit null check and go from there.
+                    truth = new_var?.Value switch
                     {
-                        throw new UnsatisfiableException("Unable to satisfy clauses");
+                        CNFStates.Asserted => CNFTruth.True,
+                        CNFStates.Negated => CNFTruth.False,
+                        _ => CNFTruth.Unknown
+                    };
+
+                    if (new_var != null)
+                    {
+                        // Add the variable to the stack
+                        if (!_assignment_stack.AddKnownVariable(new_var.Value.Key, truth, clause))
+                        {
+                            throw new UnsatisfiableException("Unable to satisfy clauses");
+                        }
+                        // And pull it out of the assignment queue.
+                        _assignment_queue.Remove(new_var.Value.Key);
+
+                        done = false;
                     }
-                    // And pull it out of the assignment queue.
-                    _assignment_queue.Remove(unit_var.Key);
+
                 }
             }
 
@@ -106,6 +145,13 @@ namespace cdclsolver
             }
         }
 
+        public void Deduce(String var_name)
+        {
+            foreach (CNFClause clause in _clause_db)
+            {
+
+            }
+        }
         public void Solve()
         {
             // Mark all of the variables as needing to be done.
@@ -116,12 +162,22 @@ namespace cdclsolver
             _assignment_queue = new List<string>(_detected_variables);
 
             Preprocess();
+            
             Console.WriteLine("After Preprocessing:");
             Console.WriteLine("Queue: " + String.Join(",", _assignment_queue));
             Console.WriteLine("Stack:");
             Console.WriteLine(_assignment_stack);
             Console.WriteLine("Clause DB:");
             Console.WriteLine(String.Join("\n", _clause_db));
+
+            // We would pick an ordering here and shuffle the assignment queue to be something more ideal here.
+            // PickOrdering()
+
+            // Find the first variable we don't have an assignment for already.
+            String next_var = _assignment_queue[_assignment_queue.Count - 1];
+            _assignment_queue.RemoveAt(_assignment_queue.Count - 1);
+
+            Deduce(next_var);
         }
 
         // Convienence Wrapper

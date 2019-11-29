@@ -26,26 +26,20 @@ namespace cdclsolver
                 String truth;
                 String decided;
 
-                switch(item.Truth)
+                truth = item.Truth switch
                 {
-                    case CNFTruth.True:
-                        truth = "T";
-                        break;
-                    case CNFTruth.False:
-                        truth = "F";
-                        break;
-                    default:
-                        truth = "U";
-                        break;
-                }
-                if (item.Decided)
+                    CNFTruth.True => "T",
+                    CNFTruth.False => "F",
+                    CNFTruth.Unknown => "U",
+                    _ => "E"
+                };
+
+                decided = item.Decided switch
                 {
-                    decided = "D";
-                }
-                else
-                {
-                    decided = "I";
-                }
+                    true => "D",
+                    false => "I"
+                };
+
                 output.AppendLine(String.Format("{0}={1}: {2}, {3}", item.Variable, truth, item.Depth, decided));
             }
 
