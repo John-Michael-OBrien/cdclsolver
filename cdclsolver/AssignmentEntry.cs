@@ -20,5 +20,18 @@ namespace cdclsolver
             Decided = decided;
             Depth = depth;
         }
+
+        public override string ToString()
+        {
+            String truth = Truth switch
+            {
+                CNFTruth.True => "",
+                CNFTruth.False => "~",
+                CNFTruth.Unknown => "?",
+                _ => "E"
+            };
+
+            return String.Format("{0}{1}@{2}", truth, Variable,Depth);
+        }
     }
 }

@@ -10,20 +10,13 @@ namespace cdclsolver
     {
         static CNFClause _decided_placeholder = new CNFClause();
 
-        public class UnsatisfiableException : Exception
-        {
-            public UnsatisfiableException(string message) : base(message) { }
-        }
-
         public class ImplicationResult
         {
-            public bool Found { get; private set; }
             public bool Conflict { get; private set; }
             public String Variable { get; private set; }
 
-            public ImplicationResult(bool new_found, String new_variable, bool new_conflict)
+            public ImplicationResult(String new_variable, bool new_conflict)
             {
-                Found = new_found;
                 Variable = new_variable;
                 Conflict = new_conflict;
             }
@@ -85,38 +78,6 @@ namespace cdclsolver
             }
         }
 
-        public KeyValuePair<String, CNFStates>? GetNewKnownVariable(CNFClause clause)
-        {
-            int unknown_vars = clause.Count;
-            KeyValuePair<String, CNFStates>? new_var = null;
-
-            foreach(KeyValuePair<String, CNFStates> var in clause)
-            {
-                if (_assignment_stack.ContainsVariable(var.Key))
-                {
-                    if (CompareStateToTruth(var.Value, _assignment_stack.GetVariable(var.Key))) {
-                        unknown_vars--;
-                    }
-                    else
-                    {
-                        new_var = var;
-                    }
-                }
-                else
-                {
-                    new_var = var;
-                }
-            }
-            if (unknown_vars == 1)
-            {
-                return new_var;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
         public CNFTruth CNFStateToTruth(CNFStates? state)
         {
             return state switch
@@ -138,27 +99,43 @@ namespace cdclsolver
 
             _clause_db.RemoveWhere(item => item.Count == 1);
         }
+        
 
-        public ImplicationResult DetermineImplications(int depth)
+        public List<ImplicationResult> GetImplications()
         {
+            List<ImplicationResult> result = new List<ImplicationResult>();
             foreach (CNFClause clause in _clause_db)
             {
-                KeyValuePair<String, CNFStates>? new_var = GetNewKnownVariable(clause);
-                CNFTruth truth;
+                bool conflict = false;
+                int false_vars = 0;
+                KeyValuePair<String, CNFStates>? new_var = null;
 
-                // This should be inside the if, but the compliler worries that "new_var?.value" might change the null state,
-                // so we just do a nullable operation out here, and then do an explicit null check and go from there.
-                truth = CNFStateToTruth(new_var?.Value);
-
-                if (new_var != null)
+                foreach (KeyValuePair<String, CNFStates> var in clause)
                 {
-                    _assignment_queue.Add(new AssignmentEntry(new_var.Value.Key, truth, clause, false, depth));
-
-                    return new ImplicationResult(true, new_var.Value.Key, false);
+                    if (_assignment_stack.ContainsVariable(var.Key))
+                    {
+                        CNFTruth truth = _assignment_stack.GetVariable(var.Key);
+                        // The assignment stack should never have an unknown in it.
+                        System.Diagnostics.Debug.Assert(truth != CNFTruth.Unknown);
+                        if (CompareStateToTruth(var.Value, truth)==false)
+                        {
+                            false_vars++;
+                        }
+                    }
+                    else
+                    {
+                        conflict = false;
+                        new_var = var;
+                    }
+                }
+                if (false_vars == clause.Count - 1 && new_var != null)
+                {
+                    result.Add(new ImplicationResult(new_var.Value.Key, conflict));
                 }
             }
 
-            return new ImplicationResult(false, "", false);
+            // If we didn't find anything, return false.
+            return result;
         }
         public AssignmentStack Solve()
         {
@@ -174,16 +151,15 @@ namespace cdclsolver
             Preprocess();
             
             Console.WriteLine("After Preprocessing:");
-            Console.WriteLine("Queue: " + String.Join(",", _assignment_queue.ConvertAll(item => item.Variable)));
-            Console.WriteLine("Stack:");
-            Console.WriteLine(_assignment_stack);
+            List<string> queue_text = _assignment_queue.ConvertAll<String>(item => item.ToString());
+            Console.WriteLine("Queue: " + String.Join(",", queue_text));
             Console.WriteLine("Clause DB:");
             Console.WriteLine(String.Join("\n", _clause_db));
 
             // We would pick an ordering here and shuffle the vars list to be something more ideal here.
             // PickOrdering()
 
-            while (vars.Count > 0)
+            while (true)
             {
 
                 // ChooseNextAssignment()
@@ -197,7 +173,19 @@ namespace cdclsolver
                 }
                 else
                 {
-                    String varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
+                    String varname;
+                    try
+                    {
+                        // Find the first variable we don't already have an assignment for.
+                        varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // If there aren't any matches, that means we've got all of them assigned (or there were none to assign anyway.)
+                        // That means we're done.
+                        return _assignment_stack;
+                    }
+
                     // Assume depth 1
                     int depth = 1;
                     // But if we already have something on the stack,
@@ -211,9 +199,13 @@ namespace cdclsolver
                     _assignment_stack.Push(next_var);
                 }
 
+                // Deduce()
+                List<ImplicationResult> result = GetImplications();
+                foreach (ImplicationResult implication in result)
+                {
 
+                }
             }
-            return _assignment_stack;
         }
 
         // Convienence Wrapper

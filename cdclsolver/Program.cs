@@ -37,7 +37,7 @@ namespace cdclsolver
                     { "C", CNFStates.Negated }
                 });
 
-            mysolver.Solve();
+            Console.WriteLine(mysolver.Solve());
         }
     }
 }
