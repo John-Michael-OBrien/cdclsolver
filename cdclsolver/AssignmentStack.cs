@@ -4,25 +4,16 @@ using System.Text;
 
 namespace cdclsolver
 {
-    public class AssignmentStackEntry : object
+    public class AssignmentStack : List<AssignmentEntry>
     {
-        public String Variable;
-        public CNFTruth Truth;
-        public CNFClause RelatedClause;
-        public bool Decided;
-        public int Depth;
-    }
-
-    public class AssignmentStack : List<AssignmentStackEntry>
-    {
-        private Dictionary<string, AssignmentStackEntry> _assignment_index = new Dictionary<string, AssignmentStackEntry>();
+        private Dictionary<string, AssignmentEntry> _assignment_index = new Dictionary<string, AssignmentEntry>();
 
         public override string ToString()
         {
             StringBuilder output = new StringBuilder();
             for (int index= this.Count-1; index >= 0; index--)
             {
-                AssignmentStackEntry item = this[index];
+                AssignmentEntry item = this[index];
                 String truth;
                 String decided;
 
@@ -46,49 +37,40 @@ namespace cdclsolver
             return output.ToString();
         }
 
-        public bool Push(String var_name, bool decided, CNFClause clause, CNFTruth truth, int depth)
+        public bool Push(AssignmentEntry entry)
         {
             // If we already have a known assignment for this variable...
-            if (_assignment_index.ContainsKey(var_name))
+            if (_assignment_index.ContainsKey(entry.Variable))
             {
                 // Return true if it matches.
-                return _assignment_index[var_name].Truth == truth;
+                return _assignment_index[entry.Variable].Truth == entry.Truth;
             }
 
-            AssignmentStackEntry entry;
-            if (depth == 0)
+            if (entry.Depth == 0)
             {
-                entry = new AssignmentStackEntry
-                {
-                    Variable = var_name,
-                    Decided = decided,
-                    RelatedClause = clause,
-                    Truth = truth,
-                    Depth = depth
-                };
-
                 // Known values are placed at the beginning to ensure that they all are grouped together
                 this.Insert(0, entry);
             }
             else
             {
-                entry = new AssignmentStackEntry
-                {
-                    Variable = var_name,
-                    Decided = decided,
-                    RelatedClause = clause,
-                    Truth = truth,
-                    Depth = depth
-                };
-
                 // Known values are placed at the beginning to ensure that they all are grouped together
                 this.Add(entry);
             }
-            _assignment_index.Add(var_name, entry);
+            _assignment_index.Add(entry.Variable, entry);
             return true;
         }
 
-        public AssignmentStackEntry Pop()
+        public bool Push(String var_name, bool decided, CNFClause clause, CNFTruth truth, int depth)
+        {
+            return Push(new AssignmentEntry(
+                    variable: var_name,
+                    decided: decided,
+                    clause: clause,
+                    truth: truth,
+                    depth: depth));
+        }
+
+        public AssignmentEntry Pop()
         {
             int index = this.Count - 1;
 
@@ -96,7 +78,7 @@ namespace cdclsolver
             {
                 throw new IndexOutOfRangeException("Tried to pop on an empty stack.");
             }
-            AssignmentStackEntry item = this[index];
+            AssignmentEntry item = this[index];
 
             if (item.Depth == 0)
             {
@@ -111,7 +93,7 @@ namespace cdclsolver
             return item;
         }
 
-        public AssignmentStackEntry Peek()
+        public AssignmentEntry Peek()
         {
             int index = this.Count - 1;
 

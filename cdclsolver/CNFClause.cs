@@ -5,7 +5,7 @@ using System.Text;
 namespace cdclsolver
 {
     public class CNFClause : Dictionary<String, CNFStates>
-    {                
+    {
         public override int GetHashCode()
         {
             int hash=0;

@@ -8,13 +8,29 @@ namespace cdclsolver
 {
     class Solver
     {
-        class UnsatisfiableException : Exception
+        static CNFClause _decided_placeholder = new CNFClause();
+
+        public class UnsatisfiableException : Exception
         {
             public UnsatisfiableException(string message) : base(message) { }
         }
 
+        public class ImplicationResult
+        {
+            public bool Found { get; private set; }
+            public bool Conflict { get; private set; }
+            public String Variable { get; private set; }
+
+            public ImplicationResult(bool new_found, String new_variable, bool new_conflict)
+            {
+                Found = new_found;
+                Variable = new_variable;
+                Conflict = new_conflict;
+            }
+        }
+
         private HashSet<CNFClause> _clause_db = new HashSet<CNFClause>();
-        private List<String> _assignment_queue = new List<string>();
+        private List<AssignmentEntry> _assignment_queue = new List<AssignmentEntry>();
         private AssignmentStack _assignment_stack = new AssignmentStack();
         HashSet<String> _detected_variables = new HashSet<String>();
 
@@ -29,7 +45,6 @@ namespace cdclsolver
                 return false;
             }
         }
-
 
         private CNFTruth ComputeValidity(CNFClause clause)
         {
@@ -102,93 +117,114 @@ namespace cdclsolver
             }
         }
 
-        private void Preprocess()
+        public CNFTruth CNFStateToTruth(CNFStates? state)
         {
-            bool done = false;
-            while (!done)
+            return state switch
             {
-                done = true;
-                foreach (CNFClause clause in _clause_db)
-                {
-                    KeyValuePair<String, CNFStates>? new_var = GetNewKnownVariable(clause);
-                    CNFTruth truth;
-
-                    // This should be inside the if, but the compliler worries that "new_var?.value" might change the null state,
-                    // so we just do a nullable operation out here, and then do an explicit null check and go from there.
-                    truth = new_var?.Value switch
-                    {
-                        CNFStates.Asserted => CNFTruth.True,
-                        CNFStates.Negated => CNFTruth.False,
-                        _ => CNFTruth.Unknown
-                    };
-
-                    if (new_var != null)
-                    {
-                        // Add the variable to the stack
-                        if (!_assignment_stack.AddKnownVariable(new_var.Value.Key, truth, clause))
-                        {
-                            throw new UnsatisfiableException("Unable to satisfy clauses");
-                        }
-                        // And pull it out of the assignment queue.
-                        _assignment_queue.Remove(new_var.Value.Key);
-
-                        done = false;
-                    }
-
-                }
-            }
-
-            // Remove any clauses that are KNOWN resolved.
-            foreach (AssignmentStackEntry entry in _assignment_stack.Where(item => item.Depth == 0))
-            {
-                _clause_db.Remove(entry.RelatedClause);
-            }
+                CNFStates.Asserted => CNFTruth.True,
+                CNFStates.Negated => CNFTruth.False,
+                _ => CNFTruth.Unknown
+            };
         }
 
-        public void Deduce(String var_name)
+        private void Preprocess()
+        {
+            // For all clauses with just one variable in them.
+            foreach (CNFClause clause in _clause_db.Where(item => item.Count == 1))
+            {
+                KeyValuePair<String, CNFStates> var = clause.First();
+                _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), clause, false, 0));
+            }
+
+            _clause_db.RemoveWhere(item => item.Count == 1);
+        }
+
+        public ImplicationResult DetermineImplications(int depth)
         {
             foreach (CNFClause clause in _clause_db)
             {
+                KeyValuePair<String, CNFStates>? new_var = GetNewKnownVariable(clause);
+                CNFTruth truth;
 
+                // This should be inside the if, but the compliler worries that "new_var?.value" might change the null state,
+                // so we just do a nullable operation out here, and then do an explicit null check and go from there.
+                truth = CNFStateToTruth(new_var?.Value);
+
+                if (new_var != null)
+                {
+                    _assignment_queue.Add(new AssignmentEntry(new_var.Value.Key, truth, clause, false, depth));
+
+                    return new ImplicationResult(true, new_var.Value.Key, false);
+                }
             }
+
+            return new ImplicationResult(false, "", false);
         }
-        public void Solve()
+        public AssignmentStack Solve()
         {
             // Mark all of the variables as needing to be done.
             // NOTE: We could just keep the HashSet as our queue, but the problem is that it doens't concern itself with order.
             // Though this implementation doesn't presently support reordering, this is an important part of such algorithms,
             // and I'd like to implement this program in a way that further optimizations don't require refactoring the whole
             // program, especially when this is only done once on the smallest amount of data.
-            _assignment_queue = new List<string>(_detected_variables);
+            _assignment_queue = new List<AssignmentEntry>();
+
+            List<String> vars = new List<string>(_detected_variables);
 
             Preprocess();
             
             Console.WriteLine("After Preprocessing:");
-            Console.WriteLine("Queue: " + String.Join(",", _assignment_queue));
+            Console.WriteLine("Queue: " + String.Join(",", _assignment_queue.ConvertAll(item => item.Variable)));
             Console.WriteLine("Stack:");
             Console.WriteLine(_assignment_stack);
             Console.WriteLine("Clause DB:");
             Console.WriteLine(String.Join("\n", _clause_db));
 
-            // We would pick an ordering here and shuffle the assignment queue to be something more ideal here.
+            // We would pick an ordering here and shuffle the vars list to be something more ideal here.
             // PickOrdering()
 
-            // Find the first variable we don't have an assignment for already.
-            String next_var = _assignment_queue[_assignment_queue.Count - 1];
-            _assignment_queue.RemoveAt(_assignment_queue.Count - 1);
+            while (vars.Count > 0)
+            {
 
-            Deduce(next_var);
+                // ChooseNextAssignment()
+                if (_assignment_queue.Count > 0)
+                {
+                    // Find the first variable we don't have an assignment for already. (Start at the back for efficiency in removal!)
+                    AssignmentEntry next_var = _assignment_queue[_assignment_queue.Count - 1];
+                    _assignment_queue.RemoveAt(_assignment_queue.Count - 1);
+
+                    _assignment_stack.Push(next_var);
+                }
+                else
+                {
+                    String varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
+                    // Assume depth 1
+                    int depth = 1;
+                    // But if we already have something on the stack,
+                    if (_assignment_stack.Count > 0)
+                    {
+                        // Pick one more than the highest one.
+                        depth = _assignment_stack.Peek().Depth + 1;
+                    }
+                    // Make a new entry. Since we don't know what value to try, try true first.
+                    AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.True, _decided_placeholder, true, depth);
+                    _assignment_stack.Push(next_var);
+                }
+
+
+            }
+            return _assignment_stack;
         }
 
         // Convienence Wrapper
-        public void Solve(CNFFormula formula)
+        public AssignmentStack Solve(CNFFormula formula)
         {
             foreach (CNFClause clause in formula)
             {
                 AddClause(clause);
             }
 
-            Solve();
+            return Solve();
         }
     }
 }
