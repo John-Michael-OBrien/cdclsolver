@@ -12,13 +12,15 @@ namespace cdclsolver
 
         public class ImplicationResult
         {
-            public bool Conflict { get; private set; }
+            public CNFClause Clause { get; private set; }
+            public CNFTruth Truth { get; private set; }
             public String Variable { get; private set; }
 
-            public ImplicationResult(String new_variable, bool new_conflict)
+            public ImplicationResult(String new_variable, CNFTruth new_truth, CNFClause new_clause)
             {
                 Variable = new_variable;
-                Conflict = new_conflict;
+                Clause = new_clause;
+                Truth = new_truth;
             }
         }
 
@@ -101,12 +103,12 @@ namespace cdclsolver
         }
         
 
-        public List<ImplicationResult> GetImplications()
+        public ImplicationResult? GetNextImplication()
         {
-            List<ImplicationResult> result = new List<ImplicationResult>();
             foreach (CNFClause clause in _clause_db)
             {
-                bool conflict = false;
+                CNFClause cause_clause = new CNFClause();
+                CNFTruth new_truth = CNFTruth.Unknown;
                 int false_vars = 0;
                 KeyValuePair<String, CNFStates>? new_var = null;
 
@@ -124,18 +126,19 @@ namespace cdclsolver
                     }
                     else
                     {
-                        conflict = false;
+                        cause_clause = clause;
                         new_var = var;
+                        new_truth = CNFStateToTruth(var.Value);
                     }
                 }
                 if (false_vars == clause.Count - 1 && new_var != null)
                 {
-                    result.Add(new ImplicationResult(new_var.Value.Key, conflict));
+                    return new ImplicationResult(new_var.Value.Key, new_truth, cause_clause);
                 }
             }
 
             // If we didn't find anything, return false.
-            return result;
+            return null;
         }
         public AssignmentStack Solve()
         {
@@ -200,10 +203,22 @@ namespace cdclsolver
                 }
 
                 // Deduce()
-                List<ImplicationResult> result = GetImplications();
-                foreach (ImplicationResult implication in result)
-                {
-
+                ImplicationResult? result = GetNextImplication();
+                while (result != null)
+                {                    
+                    if (_assignment_stack.ContainsVariable(result.Variable))
+                    {
+                        if (_assignment_stack.GetVariable(result.Variable) != result.Truth)
+                        {
+                            // Analyze Conflict.
+                        }
+                        else
+                        {
+                            _assignment_stack.Push(new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth));
+                        }
+                    }
+                    // Get the next one and see if we should continue.
+                    result = GetNextImplication();
                 }
             }
         }
