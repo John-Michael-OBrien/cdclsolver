@@ -160,7 +160,11 @@ namespace cdclsolver
             int current_depth = _assignment_stack.Peek().Depth;
 
             // Parallelize the conflict detection algorithm.
+#if SINGLETHREAD
+            conflict = _clause_db.Select<CNFClause, ConflictException?>(clause => {
+#else
             conflict = _clause_db.AsParallel().Select<CNFClause, ConflictException?>(clause => {
+#endif
                 CNFClause cause_clause = new CNFClause();
                 CNFTruth new_truth = CNFTruth.Unknown;
                 int false_vars = 0;
@@ -418,7 +422,12 @@ namespace cdclsolver
                             KeyValuePair<String, CNFStates> var = conflict_clause.First();
                             AssignmentEntry entry = new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0);
                             // Don't add duplicates
-                            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable)) {
+#if SINGLETHREAD
+                            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable)) {
+#else
+                            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable))
+                            {
+#endif
                                 _assignment_queue.Add(entry);
                             }
                             // And backtrack to level 0.
@@ -485,7 +494,11 @@ namespace cdclsolver
 #endif
                         if (!_assignment_stack.ContainsVariable(entry.Variable))
                         {
+#if SINGLETHREAD
+                            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable && test_entry.Truth == entry.Truth && test_entry.Depth == entry.Depth))
+#else
                             if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable && test_entry.Truth == entry.Truth && test_entry.Depth == entry.Depth))
+#endif
                             {
                                 // Add the entry to the stack
                                 _assignment_queue.Add(entry);

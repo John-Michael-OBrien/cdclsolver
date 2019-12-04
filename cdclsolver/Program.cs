@@ -75,10 +75,13 @@ namespace cdclsolver
             try
             {
                 Console.WriteLine("Starting solver...");
+                DateTime start_time = DateTime.UtcNow;
                 AssignmentStack result = mysolver.Solve();
+                DateTime end_time = DateTime.UtcNow;
                 // Write out the final assignment.
                 Console.WriteLine();
                 Console.WriteLine("Final Result: {0}", result);
+                Console.WriteLine("Solving time: {0}", end_time - start_time);
             }
             // If we crash and burn as unsatisfiable
             catch (Solver.UnsatisfiableException)
