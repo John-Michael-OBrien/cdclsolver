@@ -247,8 +247,7 @@ namespace cdclsolver
             Preprocess();
             
             Console.WriteLine("After Preprocessing:");
-            List<string> queue_text = _assignment_queue.ConvertAll<String>(item => item.ToString());
-            Console.WriteLine("Queue: " + String.Join(",", queue_text));
+            Console.WriteLine("Queue: " + String.Join(", ", _assignment_queue));
             Console.WriteLine("Clause DB:");
             Console.WriteLine(String.Join("^", _clause_db));
 
@@ -412,7 +411,7 @@ namespace cdclsolver
         public HashSet<CNFClause> GetClauses()
         {
             HashSet<CNFClause> result = new HashSet<CNFClause>(_clause_db);
-            result.UnionWith(_assignment_stack.ConvertAll<CNFClause>(entry => entry.RelatedClause));
+            result.UnionWith(_assignment_stack.Where(entry => entry.Depth == 0).Select<AssignmentEntry, CNFClause>(entry => entry.RelatedClause));
 
             return result;
         }
