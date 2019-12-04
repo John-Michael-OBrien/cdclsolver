@@ -10,31 +10,7 @@ namespace cdclsolver
 
         public override string ToString()
         {
-            StringBuilder output = new StringBuilder();
-            for (int index= this.Count-1; index >= 0; index--)
-            {
-                AssignmentEntry item = this[index];
-                String truth;
-                String decided;
-
-                truth = item.Truth switch
-                {
-                    CNFTruth.True => "T",
-                    CNFTruth.False => "F",
-                    CNFTruth.Unknown => "U",
-                    _ => "E"
-                };
-
-                decided = item.Decided switch
-                {
-                    true => "D",
-                    false => "I"
-                };
-
-                output.AppendLine(String.Format("{0}={1}: {2}, {3}", item.Variable, truth, item.Depth, decided));
-            }
-
-            return output.ToString();
+            return String.Join(", ", this);
         }
 
         public bool Push(AssignmentEntry entry)

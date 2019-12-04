@@ -30,8 +30,15 @@ namespace cdclsolver
                 CNFTruth.Unknown => "?",
                 _ => "E"
             };
-
-            return String.Format("{0}{1}@{2}", truth, Variable,Depth);
+            if (Decided)
+            {
+                return String.Format("{0}{1}@{2} D", truth, Variable, Depth);
+            }
+            else
+            {
+                return String.Format("{0}{1}@{2} ({3})", truth, Variable, Depth, RelatedClause);
+            }
+            
         }
     }
 }

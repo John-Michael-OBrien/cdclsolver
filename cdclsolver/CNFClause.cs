@@ -71,7 +71,7 @@ namespace cdclsolver
                 }
                 else
                 { 
-                    vals.Add("-" + var.Key);
+                    vals.Add("~" + var.Key);
                 }
             }
             return String.Join("v", vals);

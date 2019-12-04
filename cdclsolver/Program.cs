@@ -8,58 +8,37 @@ namespace cdclsolver
         static void Main(string[] args)
         {
             Solver mysolver = new Solver();
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "A", CNFStates.Negated },
-                    { "B", CNFStates.Negated },
-                    { "C", CNFStates.Asserted }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "A", CNFStates.Asserted },
-                    { "B", CNFStates.Negated },
-                    { "C", CNFStates.Asserted }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "C", CNFStates.Negated },
-                    { "D", CNFStates.Asserted }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "C", CNFStates.Negated },
-                    { "D", CNFStates.Negated }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "A", CNFStates.Negated },
-                    { "C", CNFStates.Asserted },
-                    { "D", CNFStates.Asserted }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "A", CNFStates.Negated },
-                    { "B", CNFStates.Asserted },
-                    { "D", CNFStates.Negated }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "B", CNFStates.Asserted },
-                    { "C", CNFStates.Asserted },
-                    { "D", CNFStates.Negated }
-                });
-            mysolver.AddClause(new CNFClause()
-                {
-                    { "A", CNFStates.Asserted },
-                    { "B", CNFStates.Asserted },
-                    { "D", CNFStates.Asserted }
-                });
-            //mysolver.AddClause(new CNFClause()
-            //    {
-            //        { "C", CNFStates.Negated }
-            //    });
 
-            Console.WriteLine(mysolver.Solve());
+            foreach(String arg in args)
+            {
+                String[] vars = arg.Split(',');
+
+                CNFClause new_clause = new CNFClause();
+                foreach (String var in vars)
+                {
+                    if (var.StartsWith("~"))
+                    {
+                        new_clause.Add(var.TrimStart('~'), CNFStates.Negated);
+                    }
+                    else
+                    {
+                        new_clause.Add(var, CNFStates.Asserted);
+                    }
+                }
+                mysolver.AddClause(new_clause);
+                Console.WriteLine("Added clause: {0}", new_clause.ToString());
+            }
+
+            try
+            {
+                AssignmentStack result = mysolver.Solve();
+                Console.WriteLine("Final Result: {0}", result);
+            }
+            catch (Solver.UnsatisfiableException)
+            {
+                Console.WriteLine("Final Result: Unsatisfiable");
+            }
+            
         }
     }
 }

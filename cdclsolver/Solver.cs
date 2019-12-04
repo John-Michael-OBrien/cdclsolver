@@ -10,6 +10,11 @@ namespace cdclsolver
     {
         static CNFClause _decided_placeholder = new CNFClause();
 
+        public class UnsatisfiableException : ApplicationException
+        {
+            public UnsatisfiableException() : base() {}
+        }
+
         public class ImplicationResult
         {
             public CNFClause Clause { get; private set; }
@@ -21,6 +26,19 @@ namespace cdclsolver
                 Variable = new_variable;
                 Clause = new_clause;
                 Truth = new_truth;
+            }
+
+            public override string ToString()
+            {
+                String truth = Truth switch
+                {
+                    CNFTruth.True => "",
+                    CNFTruth.False => "~",
+                    CNFTruth.Unknown => "?",
+                    _ => "E"
+                };
+
+                return String.Format("{0}{1} ({2})", truth, Variable, Clause);
             }
         }
 
@@ -179,7 +197,7 @@ namespace cdclsolver
                     do {
                         _assignment_queue.RemoveAt(0);
                         _assignment_stack.Push(next_var);
-                        Console.WriteLine("Pulled from queue {0} as {1}", next_var.Variable, next_var.Truth);
+                        Console.WriteLine("Pulled from queue {0}", next_var);
                         if (_assignment_queue.Count == 0)
                         {
                             break;
@@ -222,39 +240,36 @@ namespace cdclsolver
                     }
                     // Make a new entry. Since we don't know what value to try, try true first.
                     AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.True, _decided_placeholder, true, depth);
-                    _assignment_stack.Push(next_var);
+                    _assignment_queue.Add(next_var);
+                    //_assignment_stack.Push();
                 }
 
                 // Deduce()
                 ImplicationResult? result;
-                Console.WriteLine("Stack");
-                Console.WriteLine(_assignment_stack);
+                Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
+                Console.WriteLine("Stack: {0}", _assignment_stack);
                 result = GetNextImplication();
+                bool conflict = false;
+
                 while (result != null)
                 {
-                    if (_assignment_stack.ContainsVariable(result.Variable) && 
-                        _assignment_stack.GetVariable(result.Variable) != result.Truth)
+                    Console.WriteLine(String.Format("Implication: {0} found at depth {1}", result, _assignment_stack.Peek().Depth));
+                    _assignment_stack.Push(new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth));
+                   
+                    foreach (CNFClause clause in _clause_db)
                     {
-                        throw new NotImplementedException("This shouldn't happen.");
-                    } else
-                    {
-                        Console.WriteLine(String.Format("Implied {0} {1} @ {2}", result.Variable, result.Truth, _assignment_stack.Peek().Depth));
-                        _assignment_stack.Push(new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth));
-
-                        foreach (CNFClause clause in _clause_db)
+                        if (ComputeValidity(clause) == CNFTruth.False)
                         {
-                            if (ComputeValidity(clause) == CNFTruth.False)
-                            {
-                                conflict = true;
-                                Console.WriteLine("Conflict in clause {0}", clause);
-                                CNFClause conflict_clause = new CNFClause();
-                                
-                                throw new NotImplementedException(String.Format("Conflict! {0}", clause));
-                            }
-                        }
+                            conflict = true;
+                            Console.WriteLine("Conflict in clause {0}. Stack: {1}", clause, _assignment_stack);
+                            CNFClause conflict_clause = new CNFClause();
 
-                        conflict = false;
+                                
+                            throw new NotImplementedException(String.Format("Conflict! {0}", clause));
+                        }
                     }
+
+                    conflict = false;
 
                     // Get the next one and see if we should continue.
                     result = GetNextImplication();

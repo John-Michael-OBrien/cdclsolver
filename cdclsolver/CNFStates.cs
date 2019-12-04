@@ -13,7 +13,7 @@ namespace cdclsolver
     {
         Unknown=1,
         True=-1,
-        False=0
+        False=0    
     }
 
 }
