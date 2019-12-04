@@ -61,12 +61,12 @@ namespace cdclsolver
             foreach (KeyValuePair<String, CNFStates> var in clause)
             {
                 // If we find one,
-                if (_assignment_stack.ContainsVariable(var.Key))
+                if (_assignment_stack.TryGetVariableValue(var.Key, out CNFTruth truth))
                 {
                     // Mark that we found it.
                     count++;
                     // If we match, then the clause as a whole is true.
-                    if (CompareStateToTruth(var.Value, _assignment_stack.GetVariableValue(var.Key)))
+                    if (CompareStateToTruth(var.Value, truth))
                     {
                         return CNFTruth.True;
                     }
@@ -86,7 +86,8 @@ namespace cdclsolver
         public void EnqueueEntry(AssignmentEntry entry)
         {
 #if SINGLETHREAD
-            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable)) {
+            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable))
+            {
 #else
             if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable))
             {
@@ -184,8 +185,8 @@ namespace cdclsolver
 
                 foreach (KeyValuePair<String, CNFStates> var in clause)
                 {
-                    CNFTruth truth;
-                    if (_assignment_stack.TryGetVariableValue(var.Key, out truth)) {
+                    if (_assignment_stack.TryGetVariableValue(var.Key, out CNFTruth truth))
+                    {
                         // The assignment stack should never have an unknown in it.
                         System.Diagnostics.Debug.Assert(truth != CNFTruth.Unknown);
                         // If the value doesn't match the known one, then it's not asserting.
