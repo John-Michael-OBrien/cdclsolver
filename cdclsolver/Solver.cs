@@ -95,6 +95,7 @@ namespace cdclsolver
             }
         }
 
+        // Does basic clause resolution. Will throw an error if resolution isn't appropriate on the clauses.
         public CNFClause ResolveClauses(CNFClause clause1, CNFClause clause2)
         {
             bool resolved = false;
@@ -131,27 +132,35 @@ namespace cdclsolver
         #endregion
 
         #region CDCL Routines
+        // Preprocesses the clause database and plucks out any unit literals.
         private void Preprocess()
         {
-            Console.WriteLine("Preprocessing...");
             // For all clauses with just one variable in them. (unit clauses)
             foreach (CNFClause clause in _clause_db.Where(item => item.Count == 1))
             {
                 KeyValuePair<String, CNFStates> var = clause.First();
+#if VERBOSE
                 Console.WriteLine("Found unit literal {0} {1}", var.Key, var.Value);
+#endif       
                 _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), clause, false, 0));
             }
 
-            _clause_db.RemoveWhere(item => item.Count == 1);
+            // If we're unsatisfiable with the preprocessing, bail early.
+            if (_clause_db.Any(clause => ComputeValidity(clause) == CNFTruth.False)) {
+                throw new UnsatisfiableException();
+            }
         }
 
 
         public Dictionary<String, ImplicationResult> Deduce()
         {
             Dictionary<String, ImplicationResult> result = new Dictionary<string, ImplicationResult>();
+            ConflictException? conflict=null;
+            // Cache our current depth to avoid unnecessary indirection.
+            int current_depth = _assignment_stack.Peek().Depth;
 
-            foreach (CNFClause clause in _clause_db)
-            {
+            // Parallelize the conflict detection algorithm.
+            conflict = _clause_db.AsParallel().Select<CNFClause, ConflictException?>(clause => {
                 CNFClause cause_clause = new CNFClause();
                 CNFTruth new_truth = CNFTruth.Unknown;
                 int false_vars = 0;
@@ -159,44 +168,79 @@ namespace cdclsolver
 
                 foreach (KeyValuePair<String, CNFStates> var in clause)
                 {
+                    // if we already have the value...
                     if (_assignment_stack.ContainsVariable(var.Key))
                     {
+                        // Get what it is.
                         CNFTruth truth = _assignment_stack.GetVariableValue(var.Key);
                         // The assignment stack should never have an unknown in it.
                         System.Diagnostics.Debug.Assert(truth != CNFTruth.Unknown);
+                        // If the value doesn't match the known one, then it's not asserting.
                         if (CompareStateToTruth(var.Value, truth) == false)
                         {
+                            // Increment our counter.
                             false_vars++;
                         }
                     }
                     else
                     {
+                        // If we don't have the value, mark that we might have an implication about it if it's the only one.
                         cause_clause = clause;
                         new_var = var;
                         new_truth = CNFStateToTruth(var.Value);
                     }
                 }
+
+                // If there was only one unknown value
                 if (false_vars == clause.Count - 1 && new_var != null)
                 {
+                    // Then it's implied to be asserting. Make a new implication.
                     ImplicationResult implication = new ImplicationResult(new_var.Value.Key, new_truth, cause_clause);
-                    Console.WriteLine("Implication {0} found at depth {1}", implication, _assignment_stack.Peek().Depth);
-                    if (result.ContainsKey(implication.Variable))
+#if VERBOSE
+                    Console.WriteLine("Implication {0} found at depth {1}", implication, current_depth);
+#endif
+
+                    // Check if we already have an implication for this variable.
+                    // Lock the result structure since we're going to depend on it a lot, do non-atomic operations on it,
+                    // and it's not thread safe. There is a thread safe alternative, but it's still not a good idea because
+                    // of the non-atomic operations. (Specifically the ContainsKey check followed by further decisions
+                    // on the results.)
+                    lock (result)
                     {
-                        ImplicationResult test_implication = result[new_var.Value.Key];
-                        if (test_implication.Truth != new_truth)
+                        // If we already have an implication for that variable
+                        if (result.ContainsKey(implication.Variable))
                         {
-                            throw new ConflictException(test_implication.Clause, implication.Clause, implication.Variable);
+                            // Grab the existing one
+                            ImplicationResult test_implication = result[new_var.Value.Key];
+                            // And check if it isn't the same as our new one.
+                            if (test_implication.Truth != new_truth)
+                            {
+                                // If so it's a conflict. Return it back to be thrown.
+                                return new ConflictException(test_implication.Clause, implication.Clause, implication.Variable);
+                            }
+                        }
+                        else
+                        {
+                            // If it isn't already in our known implications, add it.
+                            result.Add(new_var.Value.Key, implication);
                         }
                     }
-                    else
-                    {
-                        result.Add(new_var.Value.Key, implication);
-                    }                        
                 }
-            }
 
-            // Return whatever we found.
-            return result;
+                return null;
+            }).FirstOrDefault(conflict => conflict != null);
+
+            // If there was a conflict
+            if (conflict != null)
+            {
+                // Throw it back as an exception.
+                throw conflict;
+            }
+            else
+            {
+                // Otherwise return whatever implications we found.
+                return result;
+            }
         }
 
         CNFClause AnalyzeConflict(ConflictException conflict, int depth)
@@ -243,31 +287,53 @@ namespace cdclsolver
             // program, especially when this is only done once on the smallest amount of data.
 
             List<String> vars = new List<string>(_detected_variables);
+            long cycle_count=0;
+            DateTime last_update = DateTime.UtcNow;
 
+            Console.WriteLine("Preprocessing...");
             Preprocess();
-            
+
+#if VERBOSE
             Console.WriteLine("After Preprocessing:");
             Console.WriteLine("Queue: " + String.Join(", ", _assignment_queue));
             Console.WriteLine("Clause DB:");
             Console.WriteLine(String.Join("^", _clause_db));
-
+#endif
             // We would pick an ordering here and shuffle the vars list to be something more ideal here.
             // This is why vars is a List instead of a HashSet; it allows for reordering.
             // PickOrdering()
 
+            Console.WriteLine("Starting main processing loop...");
             while (true)
             {
+                cycle_count++;
+#if VERBOSE
                 Console.WriteLine();
-                Console.WriteLine("Starting Cycle.");
+                Console.WriteLine("Starting Cycle {0}", cycle_count);
                 Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
+#else
+                if (DateTime.UtcNow.Subtract(last_update).TotalSeconds > 2)
+                {
+                    last_update = DateTime.UtcNow;
+                    Console.WriteLine();
+                    Console.WriteLine("Starting Cycle {0}", cycle_count);
+                    Console.WriteLine("Queue Length: {0}", _assignment_queue.Count);
+                    Console.WriteLine("Stack Length: {0}", _assignment_stack.Count);
+                    Console.WriteLine("Stack Depth: {0}", _assignment_stack.Peek().Depth);
+                    Console.WriteLine("Depth 0 variables: {0}", _assignment_stack.Count(entry => entry.Depth == 0));
+                }
+#endif
 
                 // ChooseNextAssignment()
+
                 if (_assignment_queue.Count > 0)
                 {
                     AssignmentEntry next_var = _assignment_queue[0];
                     _assignment_queue.RemoveAt(0);
                     _assignment_stack.Push(next_var);
+#if VERBOSE
                     Console.WriteLine("Pulled from queue {0}", next_var);
+#endif
                 }
                 else
                 {
@@ -276,7 +342,9 @@ namespace cdclsolver
                     {
                         // Find the first variable we don't already have an assignment for.
                         varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
+#if VERBOSE
                         Console.WriteLine("Picking {0} as True", varname);
+#endif
                     }
                     catch (InvalidOperationException)
                     {
@@ -301,8 +369,10 @@ namespace cdclsolver
                     _assignment_queue.Add(next_var);
                 }
 
+#if VERBOSE
                 Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
                 Console.WriteLine("Stack: {0}", _assignment_stack);
+#endif
 
                 Dictionary<String, ImplicationResult>? result = null;
                 // Initialize our continuation variable to ensure the first loop runs.
@@ -319,34 +389,43 @@ namespace cdclsolver
                     // If there was a conflict
                     catch (ConflictException conflict)
                     {
+#if VERBOSE
                         Console.WriteLine("Detected conflict: {0}", conflict);
+#endif
                         conflicted = true;
                         // "a conflict at level 0 results in a backtracking level of−1,which causes CDCL to report unsatisfiability"
                         if (_assignment_stack.Peek().Depth == 0)
                         {
+                            Console.WriteLine("Unsatisfiability conflict: {0}", conflict);
                             throw new UnsatisfiableException();
                         }
 
                         // Analyze the conflict and get a conflict clause
                         CNFClause conflict_clause = AnalyzeConflict(conflict, _assignment_stack.Peek().Depth);
+                        // Add the clause to our database.
+                        _clause_db.Add(conflict_clause);
 
+#if VERBOSE
                         Console.WriteLine("Learned Conflict Clause {0}.", conflict_clause);
 
+#endif
                         int backtrack_level = 0;
 
                         // If our conflict clause is a unit clause
                         if (conflict_clause.Count == 1)
                         {
-                            // Add it directly to the assignment queue (we don't keep unit clauses in the clause database)
+                            // Add it directly to the assignment queue
                             KeyValuePair<String, CNFStates> var = conflict_clause.First();
-                            _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0));
+                            AssignmentEntry entry = new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0);
+                            // Don't add duplicates
+                            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable)) {
+                                _assignment_queue.Add(entry);
+                            }
                             // And backtrack to level 0.
                             backtrack_level = 0;
                         }
                         else
                         {
-                            // Add the clause to our database.
-                            _clause_db.Add(conflict_clause);
 
                             // Otherwise, look for the biggest assignment below the current depth
                             int target_depth = _assignment_stack.Peek().Depth;
@@ -376,7 +455,9 @@ namespace cdclsolver
                             System.Diagnostics.Debug.Assert(backtrack_level >= 0, "Backtrack level below 0 detected!");
                         }
 
+#if VERBOSE
                         Console.WriteLine("Backtracking to depth {0}.", backtrack_level);
+#endif
                         // Erase anything out of the stack that is higher depth than our target.
                         while (_assignment_stack.Count > 0 && _assignment_stack.Peek().Depth > backtrack_level)
                         {
@@ -399,9 +480,17 @@ namespace cdclsolver
                     {
                         AssignmentEntry entry = new AssignmentEntry(implication.Variable, implication.Truth, implication.Clause, false, _assignment_stack.Peek().Depth);
                         // "When a new assignment is added to the stack, its implications are added by Deduce to the assignment queue"
+#if VERBOSE
                         Console.WriteLine("Adding {0} to the queue", entry);
-                        // Add the entry to the stack
-                        _assignment_queue.Add(entry);
+#endif
+                        if (!_assignment_stack.ContainsVariable(entry.Variable))
+                        {
+                            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable && test_entry.Truth == entry.Truth && test_entry.Depth == entry.Depth))
+                            {
+                                // Add the entry to the stack
+                                _assignment_queue.Add(entry);
+                            }
+                        }
                     }
                 }
             }
@@ -466,7 +555,9 @@ namespace cdclsolver
                 }
                 // Add our newly created clause
                 AddClause(new_clause);
+#if VERBOSE
                 Console.WriteLine("Added clause: {0}", new_clause.ToString());
+#endif
             }
         }
 
@@ -492,6 +583,6 @@ namespace cdclsolver
             }
             return result;
         }
-        #endregion
+#endregion
     }
 }

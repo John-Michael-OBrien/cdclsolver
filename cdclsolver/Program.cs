@@ -62,9 +62,9 @@ namespace cdclsolver
                     }
 
                 }
-                catch
+                catch(Exception e)
                 {
-                    Console.WriteLine("Unable to parse command line argument {0}", arg);
+                    Console.WriteLine("Unable to parse command line argument {0}. Reason: {1}", arg, e);
                     ShowHelp();
                     return;
                 }
