@@ -5,6 +5,17 @@ namespace cdclsolver
 {
     class Program
     {
+        static void ShowHelp()
+        {
+            String executable = System.IO.Path.GetFileNameWithoutExtension(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
+            Console.WriteLine("Usage: {0} <clause>[,<clause>,[<clause>,[...]]] | --file <source filename>", executable);
+            Console.WriteLine("Clause Format: [~]<variable name>,[[~]<variable name>, [[~]<variable name>, [...]]]");
+            Console.WriteLine("~ indicates negation.");
+            Console.WriteLine();
+            Console.WriteLine("Direct Clause Example: {0} ~a,~b,c a,~b,c ~c,d ~c,~d ~a,c,d ~a,b,~d b,c,~d a,b,d", executable);
+            Console.WriteLine("File Example: {0} --file clauses.txt", executable);
+        }
+
         static void Main(string[] args)
         {
             Solver mysolver = new Solver();
@@ -12,44 +23,53 @@ namespace cdclsolver
             Console.WriteLine("Reading arguments from the command line...");
 
             // Grab all of our arguments.
-            foreach(String arg in args)
+            for (int i = 0; i < args.Length; i++)
             {
-                // If they ask for help, give it.
-                if (arg.ToLower() == "--help")
+                // Fetch the argument
+                String arg = args[i];
+                try
                 {
-                    String executable = System.IO.Path.GetFileNameWithoutExtension(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
-                    Console.WriteLine("Usage: {0} <clause>[,<clause>,[<clause>,[...]]]", executable);
-                    Console.WriteLine("Clause Format: [~]<variable name>,[[~]<variable name>, [[~]<variable name>, [...]]]");
-                    Console.WriteLine("~ indicates negation.");
-                    Console.WriteLine();
-                    Console.WriteLine("Example: {0} ~a,~b,c a,~b,c ~c,d ~c,~d ~a,c,d ~a,b,~d b,c,~d a,b,d", executable);
-
-                    // And end the program
-                    return;
-                }
-
-                // Split up the variables inside the clause argument
-                String[] vars = arg.Split(',');
-
-                CNFClause new_clause = new CNFClause();
-                foreach (String var in vars)
-                {                    
-                    // If the clause is negated...
-                    if (var.StartsWith("~"))
+                    if (arg.StartsWith("--"))
                     {
-                        // Add a negative clause, trimming the negation symbol.
-                        new_clause.Add(var.TrimStart('~'), CNFStates.Negated);
+                        // If they ask for help, give it.
+                        if (arg.ToLower() == "--help")
+                        {
+                            ShowHelp();
+                            // And end the program
+                            return;
+                        }
+                        else if (arg.ToLower() == "--file")
+                        {
+                            // Move to the filename itself
+                            i++;
+                            // Make sure that's an actual argument
+                            if (i >= args.Length)
+                            {
+                                Console.WriteLine("No file argument provided.");
+                                ShowHelp();
+                                return;
+                            }
+                            // Get a loaded solver
+                            mysolver = Solver.FromFile(args[i]);
+                            // And then exit the argument processor.
+                            break;
+                        }
                     }
                     else
                     {
-                        // Otherwise add the clause as positive.
-                        new_clause.Add(var, CNFStates.Asserted);
+                        // Otherwise it's a clause. Parse it as such.
+                        mysolver.ParseFormula(arg);
                     }
+
                 }
-                // Add our newly created clause
-                mysolver.AddClause(new_clause);
-                Console.WriteLine("Added clause: {0}", new_clause.ToString());
+                catch
+                {
+                    Console.WriteLine("Unable to parse command line argument {0}", arg);
+                    ShowHelp();
+                    return;
+                }
             }
+
 
             // Try solving for an assignment.
             try

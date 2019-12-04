@@ -1,0 +1,19 @@
+﻿# Test file, by JM. Derived from the classrom example.
+~a,~b,c a,~b,c
+
+
+
+# Some dummy whitespace above this
+~a,c,d          ~a,b,~d b,c,~d # inline comment example, also, lots of inline whitespace
+      a,b,d # Prefixing whitespace and inline whitespace
+# Tons of trailing whitespace below this (Also, the conflicting pair. Comment out the second
+# one to make this satisfiable.)
+~c,d                  
+~c,~d
+
+# Dummy unit literal with # and ~ in it. Can't start with either, but no reason it can't
+# include it elsewhere, though I'd recommend against it for readability reasons.
+E#~
+
+
+

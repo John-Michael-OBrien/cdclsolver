@@ -428,6 +428,70 @@ namespace cdclsolver
 
             return s.Solve();
         }
+
+
+        public void ParseFormula(String formula)
+        {
+            // Break the clauses up by spaces
+            foreach (String clause_text in formula.Split(" "))
+            {
+                // If there's nothing in this clause after splitting, skip it. (For example if there was an extra space between the clauses.)
+                if (clause_text.Length == 0)
+                {
+                    continue;
+                }
+                if (clause_text.StartsWith("#"))
+                {
+                    // Stop parsing if a pound is encountered (indicating an inline comment.)
+                    return;
+                }
+
+                // Split up the variables inside the clause argument
+                String[] vars = clause_text.Split(',');
+
+                CNFClause new_clause = new CNFClause();
+                foreach (String var in vars)
+                {                    
+                    // If the clause is negated...
+                    if (var.StartsWith("~"))
+                    {
+                        // Add a negative clause, trimming the negation symbol.
+                        new_clause.Add(var.TrimStart('~'), CNFStates.Negated);
+                    }
+                    else
+                    {
+                        // Otherwise add the clause as positive.
+                        new_clause.Add(var, CNFStates.Asserted);
+                    }
+                }
+                // Add our newly created clause
+                AddClause(new_clause);
+                Console.WriteLine("Added clause: {0}", new_clause.ToString());
+            }
+        }
+
+        public static Solver FromFile(String filename)
+        {
+            Solver result=new Solver();
+            System.IO.TextReader source = System.IO.File.OpenText(filename);
+            String? line;
+            while ((line = source.ReadLine()) != null) {
+                // Wipe out any leading/trailing whitespace.
+                line = line.Trim();
+                // If it's blank after trimming, skip it.
+                if (line.Length == 0)
+                {
+                    continue;
+                }
+                // Check if it starts with a # (indicating a comment)
+                if (line.StartsWith("#"))
+                {
+                    continue;
+                }
+                result.ParseFormula(line);
+            }
+            return result;
+        }
         #endregion
     }
 }

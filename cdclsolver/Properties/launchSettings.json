@@ -2,7 +2,7 @@
   "profiles": {
     "cdclsolver": {
       "commandName": "Project",
-      "commandLineArgs": "~a,~b,c a,~b,c ~c,d ~a,c,d ~c,~d ~a,b,~d b,c,~d a,b,d"
+      "commandLineArgs": "--file test_formula.txt"
     }
   }
 }
