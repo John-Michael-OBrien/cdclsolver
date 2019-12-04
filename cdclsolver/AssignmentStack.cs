@@ -99,6 +99,22 @@ namespace cdclsolver
             return _assignment_index[var_name].Truth;
         }
 
+        public bool TryGetVariableValue(String var_name, out CNFTruth result)
+        {
+            AssignmentEntry entry;
+            if (_assignment_index.TryGetValue(var_name, out entry))
+            {
+                result = entry.Truth;
+                return true;
+            }
+            else
+            {
+                result = CNFTruth.Unknown;
+                return false;
+            }
+
+        }
+
         public AssignmentEntry GetEntryByVariable(String var_name)
         {
             //return this.Find(entry => entry.Variable == var_name);

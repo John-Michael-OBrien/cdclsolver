@@ -184,14 +184,12 @@ namespace cdclsolver
 
                 foreach (KeyValuePair<String, CNFStates> var in clause)
                 {
-                    // Get what it is.
-                    CNFTruth? truth = _assignment_stack.GetVariableValueOrNull(var.Key);
-                    if (truth != null)
-                    {
+                    CNFTruth truth;
+                    if (_assignment_stack.TryGetVariableValue(var.Key, out truth)) {
                         // The assignment stack should never have an unknown in it.
                         System.Diagnostics.Debug.Assert(truth != CNFTruth.Unknown);
                         // If the value doesn't match the known one, then it's not asserting.
-                        if (CompareStateToTruth(var.Value, truth.Value) == false)
+                        if (CompareStateToTruth(var.Value, truth) == false)
                         {
                             // Increment our counter.
                             false_vars++;
