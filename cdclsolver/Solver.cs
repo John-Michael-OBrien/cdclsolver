@@ -6,65 +6,29 @@ using System.Linq;
 
 namespace cdclsolver
 {
-    class Solver
+    public class Solver
     {
-        static CNFClause _decided_placeholder = new CNFClause();
-
         public class UnsatisfiableException : ApplicationException
         {
             public UnsatisfiableException() : base() { }
         }
 
-        public class ConflictException : ApplicationException
-        {
-            public CNFClause Clause1 { get; private set; }
-            public CNFClause Clause2 { get; private set; }
-            public String Variable { get; private set; }
+        // A static placeholder that's used for all decided clauses. This avoids making a million copies of the same blank object.
+        static CNFClause _decided_placeholder = new CNFClause();
 
-            public ConflictException(CNFClause clause1, CNFClause clause2, String variable) : base() {
-                Clause1 = clause1;
-                Clause2 = clause2;
-                Variable = variable;
-            }
-
-            public override string ToString()
-            {
-                return String.Format("Conflict between ({0})^({1}) on variable {2}.", Clause1, Clause2, Variable);
-            }
-        }
-
-        public class ImplicationResult
-        {
-            public CNFClause Clause { get; private set; }
-            public CNFTruth Truth { get; private set; }
-            public String Variable { get; private set; }
-
-            public ImplicationResult(String new_variable, CNFTruth new_truth, CNFClause new_clause)
-            {
-                Variable = new_variable;
-                Clause = new_clause;
-                Truth = new_truth;
-            }
-
-            public override string ToString()
-            {
-                String truth = Truth switch
-                {
-                    CNFTruth.True => "",
-                    CNFTruth.False => "~",
-                    CNFTruth.Unknown => "?",
-                    _ => "E"
-                };
-
-                return String.Format("{0}{1} ({2})", truth, Variable, Clause);
-            }
-        }
-
+        #region Instance State
+        // The database of clauses
         private HashSet<CNFClause> _clause_db = new HashSet<CNFClause>();
+        // The queue of assignments to make
         private List<AssignmentEntry> _assignment_queue = new List<AssignmentEntry>();
+        // The stack of currently applied assignments
         private AssignmentStack _assignment_stack = new AssignmentStack();
+        // The list of variables we found during setup.
         HashSet<String> _detected_variables = new HashSet<String>();
+        #endregion
 
+        #region CNFState/CNFTruth Tools
+        // Checks if the truth matches the state. If they don't or the truth is unknown, this returns false.
         private bool CompareStateToTruth(CNFStates state, CNFTruth truth)
         {
             if ((state == CNFStates.Asserted && truth == CNFTruth.True) || state == CNFStates.Negated && truth == CNFTruth.False)
@@ -76,7 +40,20 @@ namespace cdclsolver
                 return false;
             }
         }
+        // Converts a clause state to a truth. Useful for comparing a variable against an assignment.
+        public CNFTruth CNFStateToTruth(CNFStates? state)
+        {
+            return state switch
+            {
+                CNFStates.Asserted => CNFTruth.True,
+                CNFStates.Negated => CNFTruth.False,
+                _ => CNFTruth.Unknown
+            };
+        }
+        #endregion
 
+        #region Clause Handling Utilities
+        // Returns the validity of a clause. If any variable is unknown, then the validity of the clause is returned as unknown.
         private CNFTruth ComputeValidity(CNFClause clause)
         {
             int count = 0;
@@ -106,29 +83,58 @@ namespace cdclsolver
             return CNFTruth.Unknown;
         }
 
+        // Adds a clause to the clause DB.
         public void AddClause(CNFClause clause)
         {
             _clause_db.Add(clause);
             // And pull all of the clause's variables in.
             foreach (String var_name in clause.Keys)
             {
+                // This is a HashSet, so duplicates will be automatically culled.
                 _detected_variables.Add(var_name);
             }
         }
 
-        public CNFTruth CNFStateToTruth(CNFStates? state)
+        public CNFClause ResolveClauses(CNFClause clause1, CNFClause clause2)
         {
-            return state switch
-            {
-                CNFStates.Asserted => CNFTruth.True,
-                CNFStates.Negated => CNFTruth.False,
-                _ => CNFTruth.Unknown
-            };
-        }
+            bool resolved = false;
+            // Prime our result with the first clause
+            CNFClause result = new CNFClause(clause1);
 
+            // Then search the second
+            foreach (KeyValuePair<String, CNFStates> var in clause2)
+            {
+                // If we have a duplicate variable
+                if (result.ContainsKey(var.Key))
+                {
+                    // And it's different
+                    if (result[var.Key] != var.Value)
+                    {
+                        // Remove it (This will also remove the resolution variable)
+                        result.Remove(var.Key);
+                        resolved = true;
+                    }
+                }
+                else
+                {
+                    // Otherwise add the new variable to the resolved clause
+                    result.Add(var.Key, var.Value);
+                }
+            }
+
+            if (!resolved)
+            {
+                throw new ArgumentException("The clauses could not be resolved; they do not have a resolution variable in common.");
+            }
+            return result;
+        }
+        #endregion
+
+        #region CDCL Routines
         private void Preprocess()
         {
-            // For all clauses with just one variable in them.
+            Console.WriteLine("Preprocessing...");
+            // For all clauses with just one variable in them. (unit clauses)
             foreach (CNFClause clause in _clause_db.Where(item => item.Count == 1))
             {
                 KeyValuePair<String, CNFStates> var = clause.First();
@@ -140,7 +146,7 @@ namespace cdclsolver
         }
 
 
-        public Dictionary<String, ImplicationResult> GetImplications()
+        public Dictionary<String, ImplicationResult> Deduce()
         {
             Dictionary<String, ImplicationResult> result = new Dictionary<string, ImplicationResult>();
 
@@ -173,7 +179,7 @@ namespace cdclsolver
                 if (false_vars == clause.Count - 1 && new_var != null)
                 {
                     ImplicationResult implication = new ImplicationResult(new_var.Value.Key, new_truth, cause_clause);
-                    Console.WriteLine(String.Format("Implication: {0} found at depth {1}", implication, _assignment_stack.Peek().Depth));
+                    Console.WriteLine("Implication {0} found at depth {1}", implication, _assignment_stack.Peek().Depth);
                     if (result.ContainsKey(implication.Variable))
                     {
                         ImplicationResult test_implication = result[new_var.Value.Key];
@@ -190,40 +196,6 @@ namespace cdclsolver
             }
 
             // Return whatever we found.
-            return result;
-        }
-
-        public CNFClause ResolveClauses(CNFClause clause1, CNFClause clause2)
-        {
-            bool resolved = false;
-            // Prime our result with the first clause
-            CNFClause result = new CNFClause(clause1);
-
-            // Then search the second
-            foreach (KeyValuePair<String, CNFStates> var in clause2)
-            {
-                // If we have a duplicate variable
-                if(result.ContainsKey(var.Key))
-                {
-                    // And it's different
-                    if (result[var.Key] != var.Value)
-                    {
-                        // Remove it (This will also remove the resolution variable)
-                        result.Remove(var.Key);
-                        resolved = true;
-                    }
-                }
-                else
-                {
-                    // Otherwise add the new variable to the resolved clause
-                    result.Add(var.Key, var.Value);
-                }
-            }
-
-            if (!resolved)
-            {
-                throw new ArgumentException("The clauses could not be resolved; they do not have a resolution variable in common.");
-            }
             return result;
         }
 
@@ -282,16 +254,16 @@ namespace cdclsolver
             Console.WriteLine(String.Join("\n", _clause_db));
 
             // We would pick an ordering here and shuffle the vars list to be something more ideal here.
+            // This is why vars is a List instead of a HashSet; it allows for reordering.
             // PickOrdering()
 
             while (true)
             {
-
-                // ChooseNextAssignment()
                 Console.WriteLine();
                 Console.WriteLine("Starting Cycle.");
                 Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
 
+                // ChooseNextAssignment()
                 if (_assignment_queue.Count > 0)
                 {
                     AssignmentEntry next_var = _assignment_queue[0];
@@ -306,18 +278,12 @@ namespace cdclsolver
                     {
                         // Find the first variable we don't already have an assignment for.
                         varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
-                        Console.WriteLine(String.Format("Picking {0} as True", varname));
+                        Console.WriteLine("Picking {0} as True", varname);
                     }
                     catch (InvalidOperationException)
                     {
-                        // Quick sanity check.
-                        foreach (CNFClause clause in _clause_db)
-                        {
-                            if (ComputeValidity(clause) == CNFTruth.False)
-                            {
-                                throw new NotImplementedException(String.Format("Failure! {0}", clause));
-                            }
-                        }
+                        // Quick sanity check. Every clause should be valid.
+                        System.Diagnostics.Debug.Assert(_clause_db.All(clause => ComputeValidity(clause) == CNFTruth.True), "Unknown or invalid clause detected in complete assignment!");
 
                         // If there aren't any matches, that means we've got all of them assigned (or there were none to assign anyway.)
                         // That means we're done.
@@ -339,7 +305,6 @@ namespace cdclsolver
 
                 Console.WriteLine("Stack: {0}", _assignment_stack);
 
-                // Deduce()
                 Dictionary<String, ImplicationResult>? result = null;
 
                 bool wasnt_conflicted = false;
@@ -347,9 +312,11 @@ namespace cdclsolver
                 while (!wasnt_conflicted && _assignment_stack.Count > 0) {
                     try
                     {
-                        result = GetImplications();
+                        // Get back an array of inferred values
+                        result = Deduce();
                         wasnt_conflicted = true;
                     }
+                    // If there was a conflict
                     catch (ConflictException conflict)
                     {
                         wasnt_conflicted = false;
@@ -365,16 +332,21 @@ namespace cdclsolver
 
                         int backtrack_level = 0;
 
+                        // If our conflict clause is a unit clause
                         if (conflict_clause.Count == 1)
                         {
+                            // Add it directly to the assignment queue (we don't keep unit clauses in the clause database
                             KeyValuePair<String, CNFStates> var = conflict_clause.First();
                             _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0));
+                            // And backtrack to level 0.
                             backtrack_level = 0;
                         }
                         else
                         {
+                            // Otherwise, look for the biggest assignment below the current depth
                             int target_depth = _assignment_stack.Peek().Depth;
                             backtrack_level = conflict_clause.Max(var => {
+                                // Only count
                                 if (!_assignment_stack.ContainsVariable(var.Key))
                                 {
                                     return -1;
@@ -392,6 +364,7 @@ namespace cdclsolver
                                     }
                                 }
                             });
+                            System.Diagnostics.Debug.Assert(backtrack_level >= 0, "Backtrack level below 1 detected!");
                         }
 
                         Console.WriteLine("Backtracking to depth {0}.", backtrack_level);
@@ -434,5 +407,6 @@ namespace cdclsolver
 
             return Solve();
         }
+        #endregion
     }
 }
