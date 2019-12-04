@@ -96,6 +96,7 @@ namespace cdclsolver
             foreach (CNFClause clause in _clause_db.Where(item => item.Count == 1))
             {
                 KeyValuePair<String, CNFStates> var = clause.First();
+                Console.WriteLine(String.Format("{0} {1}", var.Key, var.Value));
                 _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), clause, false, 0));
             }
 
@@ -107,6 +108,12 @@ namespace cdclsolver
         {
             foreach (CNFClause clause in _clause_db)
             {
+ 
+                //if (ComputeValidity(clause) == CNFTruth.False)
+                //{
+                //    throw new ArgumentOutOfRangeException("Clause is invalid!");
+                //}
+
                 CNFClause cause_clause = new CNFClause();
                 CNFTruth new_truth = CNFTruth.Unknown;
                 int false_vars = 0;
@@ -168,11 +175,17 @@ namespace cdclsolver
                 // ChooseNextAssignment()
                 if (_assignment_queue.Count > 0)
                 {
-                    // Find the first variable we don't have an assignment for already. (Start at the back for efficiency in removal!)
-                    AssignmentEntry next_var = _assignment_queue[_assignment_queue.Count - 1];
-                    _assignment_queue.RemoveAt(_assignment_queue.Count - 1);
-
-                    _assignment_stack.Push(next_var);
+                    AssignmentEntry next_var = _assignment_queue[0];
+                    do {
+                        _assignment_queue.RemoveAt(0);
+                        _assignment_stack.Push(next_var);
+                        Console.WriteLine("Pulled from queue {0} as {1}", next_var.Variable, next_var.Truth);
+                        if (_assignment_queue.Count == 0)
+                        {
+                            break;
+                        }
+                        next_var = _assignment_queue[0];
+                    } while (next_var.Decided == false);
                 }
                 else
                 {
@@ -181,9 +194,19 @@ namespace cdclsolver
                     {
                         // Find the first variable we don't already have an assignment for.
                         varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
+                        Console.WriteLine(String.Format("Picking {0} as True", varname));
                     }
                     catch (InvalidOperationException)
                     {
+                        // Quick sanity check.
+                        foreach (CNFClause clause in _clause_db)
+                        {
+                            if (ComputeValidity(clause) == CNFTruth.False)
+                            {
+                                throw new NotImplementedException(String.Format("Failure! {0}", clause));
+                            }
+                        }
+
                         // If there aren't any matches, that means we've got all of them assigned (or there were none to assign anyway.)
                         // That means we're done.
                         return _assignment_stack;
@@ -203,20 +226,36 @@ namespace cdclsolver
                 }
 
                 // Deduce()
-                ImplicationResult? result = GetNextImplication();
+                ImplicationResult? result;
+                Console.WriteLine("Stack");
+                Console.WriteLine(_assignment_stack);
+                result = GetNextImplication();
                 while (result != null)
-                {                    
-                    if (_assignment_stack.ContainsVariable(result.Variable))
+                {
+                    if (_assignment_stack.ContainsVariable(result.Variable) && 
+                        _assignment_stack.GetVariable(result.Variable) != result.Truth)
                     {
-                        if (_assignment_stack.GetVariable(result.Variable) != result.Truth)
+                        throw new NotImplementedException("This shouldn't happen.");
+                    } else
+                    {
+                        Console.WriteLine(String.Format("Implied {0} {1} @ {2}", result.Variable, result.Truth, _assignment_stack.Peek().Depth));
+                        _assignment_stack.Push(new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth));
+
+                        foreach (CNFClause clause in _clause_db)
                         {
-                            // Analyze Conflict.
+                            if (ComputeValidity(clause) == CNFTruth.False)
+                            {
+                                conflict = true;
+                                Console.WriteLine("Conflict in clause {0}", clause);
+                                CNFClause conflict_clause = new CNFClause();
+                                
+                                throw new NotImplementedException(String.Format("Conflict! {0}", clause));
+                            }
                         }
-                        else
-                        {
-                            _assignment_stack.Push(new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth));
-                        }
+
+                        conflict = false;
                     }
+
                     // Get the next one and see if we should continue.
                     result = GetNextImplication();
                 }
