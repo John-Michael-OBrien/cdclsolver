@@ -6,7 +6,7 @@ namespace cdclsolver
 {
     public class AssignmentStack : List<AssignmentEntry>
     {
-        private Dictionary<string, AssignmentEntry> _assignment_index = new Dictionary<string, AssignmentEntry>();
+        //private Dictionary<string, AssignmentEntry> _assignment_index = new Dictionary<string, AssignmentEntry>();
 
         public override string ToString()
         {
@@ -16,11 +16,11 @@ namespace cdclsolver
         public bool Push(AssignmentEntry entry)
         {
             // If we already have a known assignment for this variable...
-            if (_assignment_index.ContainsKey(entry.Variable))
-            {
-                // Return true if it matches.
-                return _assignment_index[entry.Variable].Truth == entry.Truth;
-            }
+            //if (_assignment_index.ContainsKey(entry.Variable))
+            //{
+            //    // Return true if it matches.
+            //    return _assignment_index[entry.Variable].Truth == entry.Truth;
+            //}
 
             if (entry.Depth == 0)
             {
@@ -32,7 +32,7 @@ namespace cdclsolver
                 // Known values are placed at the beginning to ensure that they all are grouped together
                 this.Add(entry);
             }
-            _assignment_index.Add(entry.Variable, entry);
+            //_assignment_index.Add(entry.Variable, entry);
             return true;
         }
 
@@ -62,7 +62,7 @@ namespace cdclsolver
             }
 
             // Pull the variable from the index.
-            _assignment_index.Remove(item.Variable);
+            //_assignment_index.Remove(item.Variable);
             // And pull the item out of the list. This should always be the last element, so this should go fast.
             this.RemoveAt(index);
 
@@ -88,12 +88,14 @@ namespace cdclsolver
 
         public bool ContainsVariable(String var_name)
         {
-            return _assignment_index.ContainsKey(var_name);
+            return this.Exists(entry => entry.Variable == var_name);
+            //return _assignment_index.ContainsKey(var_name);
         }
 
         public CNFTruth GetVariable(String var_name)
         {
-            return _assignment_index[var_name].Truth;
+            return this.Find(entry => entry.Variable == var_name).Truth;
+            //return _assignment_index[var_name].Truth;
         }
 
         public void RemoveToDepth(int depth)

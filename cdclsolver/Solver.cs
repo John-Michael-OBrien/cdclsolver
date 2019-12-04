@@ -12,7 +12,12 @@ namespace cdclsolver
 
         public class UnsatisfiableException : ApplicationException
         {
-            public UnsatisfiableException() : base() {}
+            public UnsatisfiableException() : base() { }
+        }
+
+        public class InvalidClauseException : ApplicationException
+        {
+            public InvalidClauseException() : base() { }
         }
 
         public class ImplicationResult
@@ -160,11 +165,17 @@ namespace cdclsolver
                 {
                     return new ImplicationResult(new_var.Value.Key, new_truth, cause_clause);
                 }
+                // If we know our clause to be invalid
+                if (false_vars == clause.Count)
+                {
+                    throw new InvalidClauseException();
+                }
             }
 
             // If we didn't find anything, return false.
             return null;
         }
+
         public AssignmentStack Solve()
         {
             // Mark all of the variables as needing to be done.
@@ -194,16 +205,16 @@ namespace cdclsolver
                 if (_assignment_queue.Count > 0)
                 {
                     AssignmentEntry next_var = _assignment_queue[0];
-                    do {
+                    //do {
                         _assignment_queue.RemoveAt(0);
                         _assignment_stack.Push(next_var);
                         Console.WriteLine("Pulled from queue {0}", next_var);
-                        if (_assignment_queue.Count == 0)
-                        {
-                            break;
-                        }
-                        next_var = _assignment_queue[0];
-                    } while (next_var.Decided == false);
+                        //if (_assignment_queue.Count == 0)
+                        //{
+                        //    break;
+                        //}
+                        //next_var = _assignment_queue[0];
+                    //} while (next_var.Decided == false);
                 }
                 else
                 {
@@ -254,8 +265,18 @@ namespace cdclsolver
                 while (result != null)
                 {
                     Console.WriteLine(String.Format("Implication: {0} found at depth {1}", result, _assignment_stack.Peek().Depth));
-                    _assignment_stack.Push(new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth));
-                   
+                    AssignmentEntry entry = new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth);
+                    if (_assignment_stack.ContainsVariable(entry.Variable))
+                    {
+                        if (_assignment_stack.GetVariable(entry.Variable) != entry.Truth)
+                        {
+                            throw new NotImplementedException(String.Format("Confliccvct!"));
+                        }
+                    }
+                    // "When a new assignment is added to the stack, its implications are added byDeduceto the assignment queue"
+                    _assignment_queue.Append(entry);
+                    
+                    /*
                     foreach (CNFClause clause in _clause_db)
                     {
                         if (ComputeValidity(clause) == CNFTruth.False)
@@ -264,10 +285,10 @@ namespace cdclsolver
                             Console.WriteLine("Conflict in clause {0}. Stack: {1}", clause, _assignment_stack);
                             CNFClause conflict_clause = new CNFClause();
 
-                                
                             throw new NotImplementedException(String.Format("Conflict! {0}", clause));
                         }
                     }
+                    */
 
                     conflict = false;
 
