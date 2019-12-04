@@ -6,6 +6,9 @@ namespace cdclsolver
 {
     public class CNFClause : Dictionary<String, CNFStates>
     {
+        public CNFClause() : base() { }
+        public CNFClause(CNFClause copy_source) : base(copy_source) { }
+
         public override int GetHashCode()
         {
             int hash=0;

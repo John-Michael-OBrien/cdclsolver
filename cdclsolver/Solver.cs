@@ -15,9 +15,22 @@ namespace cdclsolver
             public UnsatisfiableException() : base() { }
         }
 
-        public class InvalidClauseException : ApplicationException
+        public class ConflictException : ApplicationException
         {
-            public InvalidClauseException() : base() { }
+            public CNFClause Clause1 { get; private set; }
+            public CNFClause Clause2 { get; private set; }
+            public String Variable { get; private set; }
+
+            public ConflictException(CNFClause clause1, CNFClause clause2, String variable) : base() {
+                Clause1 = clause1;
+                Clause2 = clause2;
+                Variable = variable;
+            }
+
+            public override string ToString()
+            {
+                return String.Format("Conflict between ({0})^({1}) on variable {2}.", Clause1, Clause2, Variable);
+            }
         }
 
         public class ImplicationResult
@@ -76,7 +89,7 @@ namespace cdclsolver
                     // Mark that we found it.
                     count++;
                     // If we match, then the clause as a whole is true.
-                    if (CompareStateToTruth(var.Value, _assignment_stack.GetVariable(var.Key)))
+                    if (CompareStateToTruth(var.Value, _assignment_stack.GetVariableValue(var.Key)))
                     {
                         return CNFTruth.True;
                     }
@@ -119,24 +132,20 @@ namespace cdclsolver
             foreach (CNFClause clause in _clause_db.Where(item => item.Count == 1))
             {
                 KeyValuePair<String, CNFStates> var = clause.First();
-                Console.WriteLine(String.Format("{0} {1}", var.Key, var.Value));
+                Console.WriteLine("Found unit literal {0} {1}", var.Key, var.Value);
                 _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), clause, false, 0));
             }
 
             _clause_db.RemoveWhere(item => item.Count == 1);
         }
-        
 
-        public ImplicationResult? GetNextImplication()
+
+        public Dictionary<String, ImplicationResult> GetImplications()
         {
+            Dictionary<String, ImplicationResult> result = new Dictionary<string, ImplicationResult>();
+
             foreach (CNFClause clause in _clause_db)
             {
- 
-                //if (ComputeValidity(clause) == CNFTruth.False)
-                //{
-                //    throw new ArgumentOutOfRangeException("Clause is invalid!");
-                //}
-
                 CNFClause cause_clause = new CNFClause();
                 CNFTruth new_truth = CNFTruth.Unknown;
                 int false_vars = 0;
@@ -146,10 +155,10 @@ namespace cdclsolver
                 {
                     if (_assignment_stack.ContainsVariable(var.Key))
                     {
-                        CNFTruth truth = _assignment_stack.GetVariable(var.Key);
+                        CNFTruth truth = _assignment_stack.GetVariableValue(var.Key);
                         // The assignment stack should never have an unknown in it.
                         System.Diagnostics.Debug.Assert(truth != CNFTruth.Unknown);
-                        if (CompareStateToTruth(var.Value, truth)==false)
+                        if (CompareStateToTruth(var.Value, truth) == false)
                         {
                             false_vars++;
                         }
@@ -163,17 +172,94 @@ namespace cdclsolver
                 }
                 if (false_vars == clause.Count - 1 && new_var != null)
                 {
-                    return new ImplicationResult(new_var.Value.Key, new_truth, cause_clause);
-                }
-                // If we know our clause to be invalid
-                if (false_vars == clause.Count)
-                {
-                    throw new InvalidClauseException();
+                    ImplicationResult implication = new ImplicationResult(new_var.Value.Key, new_truth, cause_clause);
+                    Console.WriteLine(String.Format("Implication: {0} found at depth {1}", implication, _assignment_stack.Peek().Depth));
+                    if (result.ContainsKey(implication.Variable))
+                    {
+                        ImplicationResult test_implication = result[new_var.Value.Key];
+                        if (test_implication.Truth != new_truth)
+                        {
+                            throw new ConflictException(test_implication.Clause, implication.Clause, implication.Variable);
+                        }
+                    }
+                    else
+                    {
+                        result.Add(new_var.Value.Key, implication);
+                    }                        
                 }
             }
 
-            // If we didn't find anything, return false.
-            return null;
+            // Return whatever we found.
+            return result;
+        }
+
+        public CNFClause ResolveClauses(CNFClause clause1, CNFClause clause2)
+        {
+            bool resolved = false;
+            // Prime our result with the first clause
+            CNFClause result = new CNFClause(clause1);
+
+            // Then search the second
+            foreach (KeyValuePair<String, CNFStates> var in clause2)
+            {
+                // If we have a duplicate variable
+                if(result.ContainsKey(var.Key))
+                {
+                    // And it's different
+                    if (result[var.Key] != var.Value)
+                    {
+                        // Remove it (This will also remove the resolution variable)
+                        result.Remove(var.Key);
+                        resolved = true;
+                    }
+                }
+                else
+                {
+                    // Otherwise add the new variable to the resolved clause
+                    result.Add(var.Key, var.Value);
+                }
+            }
+
+            if (!resolved)
+            {
+                throw new ArgumentException("The clauses could not be resolved; they do not have a resolution variable in common.");
+            }
+            return result;
+        }
+
+        CNFClause AnalyzeConflict(ConflictException conflict, int depth)
+        {
+            HashSet<String> analyzed_vars = new HashSet<String>();
+            CNFClause result = ResolveClauses(conflict.Clause1, conflict.Clause2);
+            analyzed_vars.Add(conflict.Variable);
+
+            do
+            {
+                int count = 0;
+                foreach (KeyValuePair<String, CNFStates> var in result)
+                {
+                    if (_assignment_stack.ContainsVariable(var.Key) && _assignment_stack.GetEntryByVariable(var.Key).Depth == depth)
+                    {
+                        count++;
+                    }
+                }
+                if (count == 1)
+                {
+                    return result;
+                }
+                
+                foreach (KeyValuePair<String, CNFStates> var in result)
+                {
+                    if (!analyzed_vars.Contains(var.Key) && _assignment_stack.ContainsVariable(var.Key)) {
+                        AssignmentEntry graph_entry = _assignment_stack.GetEntryByVariable(var.Key);
+                        if (graph_entry.Depth == depth && graph_entry.Decided == false)
+                        {
+                            result = ResolveClauses(result, graph_entry.RelatedClause);
+                        }
+                        analyzed_vars.Add(var.Key);
+                    }
+                }                
+            } while (true);
         }
 
         public AssignmentStack Solve()
@@ -202,19 +288,16 @@ namespace cdclsolver
             {
 
                 // ChooseNextAssignment()
+                Console.WriteLine();
+                Console.WriteLine("Starting Cycle.");
+                Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
+
                 if (_assignment_queue.Count > 0)
                 {
                     AssignmentEntry next_var = _assignment_queue[0];
-                    //do {
-                        _assignment_queue.RemoveAt(0);
-                        _assignment_stack.Push(next_var);
-                        Console.WriteLine("Pulled from queue {0}", next_var);
-                        //if (_assignment_queue.Count == 0)
-                        //{
-                        //    break;
-                        //}
-                        //next_var = _assignment_queue[0];
-                    //} while (next_var.Decided == false);
+                    _assignment_queue.RemoveAt(0);
+                    _assignment_stack.Push(next_var);
+                    Console.WriteLine("Pulled from queue {0}", next_var);
                 }
                 else
                 {
@@ -250,50 +333,93 @@ namespace cdclsolver
                         depth = _assignment_stack.Peek().Depth + 1;
                     }
                     // Make a new entry. Since we don't know what value to try, try true first.
-                    AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.True, _decided_placeholder, true, depth);
+                    AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.False, _decided_placeholder, true, depth);
                     _assignment_queue.Add(next_var);
-                    //_assignment_stack.Push();
                 }
 
-                // Deduce()
-                ImplicationResult? result;
-                Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
                 Console.WriteLine("Stack: {0}", _assignment_stack);
-                result = GetNextImplication();
-                bool conflict = false;
 
-                while (result != null)
+                // Deduce()
+                Dictionary<String, ImplicationResult>? result = null;
+
+                bool wasnt_conflicted = false;
+
+                while (!wasnt_conflicted && _assignment_stack.Count > 0) {
+                    try
+                    {
+                        result = GetImplications();
+                        wasnt_conflicted = true;
+                    }
+                    catch (ConflictException conflict)
+                    {
+                        wasnt_conflicted = false;
+                        // "a conflict at level 0 results in a backtracking level of−1,which causes CDCL to report unsatisfiability"
+                        if (_assignment_stack.Peek().Depth == 0)
+                        {
+                            throw new UnsatisfiableException();
+                        }
+                        CNFClause conflict_clause = AnalyzeConflict(conflict, _assignment_stack.Peek().Depth);
+
+                        _clause_db.Add(conflict_clause);
+                        Console.WriteLine("Learned Conflict Clause ({0}).", conflict_clause);
+
+                        int backtrack_level = 0;
+
+                        if (conflict_clause.Count == 1)
+                        {
+                            KeyValuePair<String, CNFStates> var = conflict_clause.First();
+                            _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0));
+                            backtrack_level = 0;
+                        }
+                        else
+                        {
+                            int target_depth = _assignment_stack.Peek().Depth;
+                            backtrack_level = conflict_clause.Max(var => {
+                                if (!_assignment_stack.ContainsVariable(var.Key))
+                                {
+                                    return -1;
+                                }
+                                else
+                                {
+                                    int depth = _assignment_stack.GetEntryByVariable(var.Key).Depth;                                    
+                                    if (depth < target_depth)
+                                    {
+                                        return depth;
+                                    }
+                                    else
+                                    {
+                                        return -1;
+                                    }
+                                }
+                            });
+                        }
+
+                        Console.WriteLine("Backtracking to depth {0}.", backtrack_level);
+                        // Erase anything out of the stack that is higher depth than our target.
+                        while (_assignment_stack.Count > 0 && _assignment_stack.Peek().Depth > backtrack_level)
+                        {
+                            _assignment_stack.Pop();
+                        }
+
+                        // Erase anything out of the queue that is higher depth than our target (in case we had lots of implications.)
+                        while (_assignment_queue.Count > 0 && _assignment_queue[0].Depth > backtrack_level)
+                        {
+                            _assignment_queue.RemoveAt(0);
+                        }
+
+                        //throw new Exception(conflict.ToString());
+                    }
+                }
+                
+                if (result != null)
                 {
-                    Console.WriteLine(String.Format("Implication: {0} found at depth {1}", result, _assignment_stack.Peek().Depth));
-                    AssignmentEntry entry = new AssignmentEntry(result.Variable, result.Truth, result.Clause, false, _assignment_stack.Peek().Depth);
-                    if (_assignment_stack.ContainsVariable(entry.Variable))
+                    foreach (ImplicationResult implication in result.Values)
                     {
-                        if (_assignment_stack.GetVariable(entry.Variable) != entry.Truth)
-                        {
-                            throw new NotImplementedException(String.Format("Confliccvct!"));
-                        }
+                        AssignmentEntry entry = new AssignmentEntry(implication.Variable, implication.Truth, implication.Clause, false, _assignment_stack.Peek().Depth);
+                        // "When a new assignment is added to the stack, its implications are added by Deduce to the assignment queue"
+                        Console.WriteLine("Adding {0} to the queue", entry);
+                        _assignment_queue.Add(entry);
                     }
-                    // "When a new assignment is added to the stack, its implications are added byDeduceto the assignment queue"
-                    _assignment_queue.Append(entry);
-                    
-                    /*
-                    foreach (CNFClause clause in _clause_db)
-                    {
-                        if (ComputeValidity(clause) == CNFTruth.False)
-                        {
-                            conflict = true;
-                            Console.WriteLine("Conflict in clause {0}. Stack: {1}", clause, _assignment_stack);
-                            CNFClause conflict_clause = new CNFClause();
-
-                            throw new NotImplementedException(String.Format("Conflict! {0}", clause));
-                        }
-                    }
-                    */
-
-                    conflict = false;
-
-                    // Get the next one and see if we should continue.
-                    result = GetNextImplication();
                 }
             }
         }
