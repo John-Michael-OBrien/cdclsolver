@@ -98,23 +98,28 @@ namespace cdclsolver
             //return this.Find(entry => entry.Variable == var_name).Truth;
             return _assignment_index[var_name].Truth;
         }
+
         public AssignmentEntry GetEntryByVariable(String var_name)
         {
             //return this.Find(entry => entry.Variable == var_name);
-            return _assignment_index[var_name];
+            return _assignment_index[var_name];        
         }
 
-        public void RemoveToDepth(int depth)
+        public int GetDepth()
         {
-            if (depth < 0)
+            // Grab the last item's index
+            int index = this.Count - 1;
+            
+            // If we don't have any
+            if (index <= 0)
             {
-                throw new ArgumentException("Depth should be a number >= 0.");
+                // We're at depth 0.
+                return 0;
             }
-
-            // As long as we're not empty and we're still deeper than we want to remove
-            while (this.Count > 0 && Peek().Depth > depth)
+            else
             {
-                Pop();
+                // Otherwise, grab the depth of the last item.
+                return this[index].Depth;
             }
         }
     }

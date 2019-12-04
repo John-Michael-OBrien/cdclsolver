@@ -83,6 +83,18 @@ namespace cdclsolver
             return CNFTruth.Unknown;
         }
 
+        public void EnqueueEntry(AssignmentEntry entry)
+        {
+#if SINGLETHREAD
+            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable)) {
+#else
+            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable))
+            {
+#endif
+                _assignment_queue.Add(entry);
+            }
+        }
+
         // Adds a clause to the clause DB.
         public void AddClause(CNFClause clause)
         {
@@ -142,7 +154,7 @@ namespace cdclsolver
 #if VERBOSE
                 Console.WriteLine("Found unit literal {0} {1}", var.Key, var.Value);
 #endif       
-                _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), clause, false, 0));
+                EnqueueEntry(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), clause, false, 0));
             }
 
             // If we're unsatisfiable with the preprocessing, bail early.
@@ -157,7 +169,7 @@ namespace cdclsolver
             Dictionary<String, ImplicationResult> result = new Dictionary<string, ImplicationResult>();
             ConflictException? conflict=null;
             // Cache our current depth to avoid unnecessary indirection.
-            int current_depth = _assignment_stack.Peek().Depth;
+            int current_depth = _assignment_stack.GetDepth();
 
             // Parallelize the conflict detection algorithm.
 #if SINGLETHREAD
@@ -172,21 +184,21 @@ namespace cdclsolver
 
                 foreach (KeyValuePair<String, CNFStates> var in clause)
                 {
-                    // if we already have the value...
-                    if (_assignment_stack.ContainsVariable(var.Key))
+                    // Get what it is.
+                    CNFTruth? truth = _assignment_stack.GetVariableValueOrNull(var.Key);
+                    if (truth != null)
                     {
-                        // Get what it is.
-                        CNFTruth truth = _assignment_stack.GetVariableValue(var.Key);
                         // The assignment stack should never have an unknown in it.
                         System.Diagnostics.Debug.Assert(truth != CNFTruth.Unknown);
                         // If the value doesn't match the known one, then it's not asserting.
-                        if (CompareStateToTruth(var.Value, truth) == false)
+                        if (CompareStateToTruth(var.Value, truth.Value) == false)
                         {
                             // Increment our counter.
                             false_vars++;
                         }
                     }
-                    else
+                    // If we haven't already found a clause (This reduces calls to CNFStateToTruth which shaved 4 seconds in 27 off the run time in my test routine.)
+                    else if (new_truth == CNFTruth.Unknown)
                     {
                         // If we don't have the value, mark that we might have an implication about it if it's the only one.
                         cause_clause = clause;
@@ -323,7 +335,7 @@ namespace cdclsolver
                     Console.WriteLine("Starting Cycle {0}", cycle_count);
                     Console.WriteLine("Queue Length: {0}", _assignment_queue.Count);
                     Console.WriteLine("Stack Length: {0}", _assignment_stack.Count);
-                    Console.WriteLine("Stack Depth: {0}", _assignment_stack.Peek().Depth);
+                    Console.WriteLine("Stack Depth: {0}", _assignment_stack.GetDepth());
                     Console.WriteLine("Depth 0 variables: {0}", _assignment_stack.Count(entry => entry.Depth == 0));
                 }
 #endif
@@ -346,9 +358,6 @@ namespace cdclsolver
                     {
                         // Find the first variable we don't already have an assignment for.
                         varname = vars.First(item => !_assignment_stack.ContainsVariable(item));
-#if VERBOSE
-                        Console.WriteLine("Picking {0} as True", varname);
-#endif
                     }
                     catch (InvalidOperationException)
                     {
@@ -360,17 +369,14 @@ namespace cdclsolver
                         return _assignment_stack;
                     }
 
-                    // Assume depth 1
-                    int depth = 1;
-                    // But if we already have something on the stack,
-                    if (_assignment_stack.Count > 0)
-                    {
-                        // Pick one more than the highest one.
-                        depth = _assignment_stack.Peek().Depth + 1;
-                    }
+                    // Get our depth
+                    int depth = _assignment_stack.GetDepth() + 1;
                     // Make a new entry. Since we don't know what value to try, try true first.
                     AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.True, _decided_placeholder, true, depth);
-                    _assignment_queue.Add(next_var);
+#if VERBOSE
+                        Console.WriteLine("Adding Decision {0}", next_var);
+#endif
+                    EnqueueEntry(next_var);
                 }
 
 #if VERBOSE
@@ -398,14 +404,14 @@ namespace cdclsolver
 #endif
                         conflicted = true;
                         // "a conflict at level 0 results in a backtracking level of−1,which causes CDCL to report unsatisfiability"
-                        if (_assignment_stack.Peek().Depth == 0)
+                        if (_assignment_stack.GetDepth() == 0)
                         {
                             Console.WriteLine("Unsatisfiability conflict: {0}", conflict);
                             throw new UnsatisfiableException();
                         }
 
                         // Analyze the conflict and get a conflict clause
-                        CNFClause conflict_clause = AnalyzeConflict(conflict, _assignment_stack.Peek().Depth);
+                        CNFClause conflict_clause = AnalyzeConflict(conflict, _assignment_stack.GetDepth());
                         // Add the clause to our database.
                         _clause_db.Add(conflict_clause);
 
@@ -421,15 +427,8 @@ namespace cdclsolver
                             // Add it directly to the assignment queue
                             KeyValuePair<String, CNFStates> var = conflict_clause.First();
                             AssignmentEntry entry = new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0);
-                            // Don't add duplicates
-#if SINGLETHREAD
-                            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable)) {
-#else
-                            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable))
-                            {
-#endif
-                                _assignment_queue.Add(entry);
-                            }
+                            EnqueueEntry(entry);
+                            
                             // And backtrack to level 0.
                             backtrack_level = 0;
                         }
@@ -437,7 +436,7 @@ namespace cdclsolver
                         {
 
                             // Otherwise, look for the biggest assignment below the current depth
-                            int target_depth = _assignment_stack.Peek().Depth;
+                            int target_depth = _assignment_stack.GetDepth();
                             backtrack_level = conflict_clause.Max(var => {
                                 // Only count values that we have assignments for (there shouldn't be any we don't that matter)
                                 if (!_assignment_stack.ContainsVariable(var.Key))
@@ -468,7 +467,7 @@ namespace cdclsolver
                         Console.WriteLine("Backtracking to depth {0}.", backtrack_level);
 #endif
                         // Erase anything out of the stack that is higher depth than our target.
-                        while (_assignment_stack.Count > 0 && _assignment_stack.Peek().Depth > backtrack_level)
+                        while (_assignment_stack.Count > 0 && _assignment_stack.GetDepth() > backtrack_level)
                         {
                             _assignment_stack.Pop();
                         }
@@ -487,22 +486,14 @@ namespace cdclsolver
                     // Go through each and add them.
                     foreach (ImplicationResult implication in result.Values)
                     {
-                        AssignmentEntry entry = new AssignmentEntry(implication.Variable, implication.Truth, implication.Clause, false, _assignment_stack.Peek().Depth);
+                        AssignmentEntry entry = new AssignmentEntry(implication.Variable, implication.Truth, implication.Clause, false, _assignment_stack.GetDepth());
                         // "When a new assignment is added to the stack, its implications are added by Deduce to the assignment queue"
 #if VERBOSE
                         Console.WriteLine("Adding {0} to the queue", entry);
 #endif
                         if (!_assignment_stack.ContainsVariable(entry.Variable))
                         {
-#if SINGLETHREAD
-                            if (!_assignment_queue.Any(test_entry => test_entry.Variable == entry.Variable && test_entry.Truth == entry.Truth && test_entry.Depth == entry.Depth))
-#else
-                            if (!_assignment_queue.AsParallel().Any(test_entry => test_entry.Variable == entry.Variable && test_entry.Truth == entry.Truth && test_entry.Depth == entry.Depth))
-#endif
-                            {
-                                // Add the entry to the stack
-                                _assignment_queue.Add(entry);
-                            }
+                            EnqueueEntry(entry);
                         }
                     }
                 }
