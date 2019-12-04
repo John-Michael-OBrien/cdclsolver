@@ -19,7 +19,7 @@ namespace cdclsolver
 
         public override string ToString()
         {
-            return String.Format("Conflict between ({0})^({1}) on variable {2}.", Clause1, Clause2, Variable);
+            return String.Format("Conflict between {0}^{1} on variable {2}.", Clause1, Clause2, Variable);
         }
     }
 }

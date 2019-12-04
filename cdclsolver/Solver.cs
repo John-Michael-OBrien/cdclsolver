@@ -241,7 +241,6 @@ namespace cdclsolver
             // Though this implementation doesn't presently support reordering, this is an important part of such algorithms,
             // and I'd like to implement this program in a way that further optimizations don't require refactoring the whole
             // program, especially when this is only done once on the smallest amount of data.
-            _assignment_queue = new List<AssignmentEntry>();
 
             List<String> vars = new List<string>(_detected_variables);
 
@@ -251,7 +250,7 @@ namespace cdclsolver
             List<string> queue_text = _assignment_queue.ConvertAll<String>(item => item.ToString());
             Console.WriteLine("Queue: " + String.Join(",", queue_text));
             Console.WriteLine("Clause DB:");
-            Console.WriteLine(String.Join("\n", _clause_db));
+            Console.WriteLine(String.Join("^", _clause_db));
 
             // We would pick an ordering here and shuffle the vars list to be something more ideal here.
             // This is why vars is a List instead of a HashSet; it allows for reordering.
@@ -299,43 +298,47 @@ namespace cdclsolver
                         depth = _assignment_stack.Peek().Depth + 1;
                     }
                     // Make a new entry. Since we don't know what value to try, try true first.
-                    AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.False, _decided_placeholder, true, depth);
+                    AssignmentEntry next_var = new AssignmentEntry(varname, CNFTruth.True, _decided_placeholder, true, depth);
                     _assignment_queue.Add(next_var);
                 }
 
+                Console.WriteLine("Queue: {0}", String.Join(", ", _assignment_queue));
                 Console.WriteLine("Stack: {0}", _assignment_stack);
 
                 Dictionary<String, ImplicationResult>? result = null;
+                // Initialize our continuation variable to ensure the first loop runs.
+                bool conflicted = true;
 
-                bool wasnt_conflicted = false;
-
-                while (!wasnt_conflicted && _assignment_stack.Count > 0) {
+                // While there's still work to do (we found a conflict
+                while (conflicted && _assignment_stack.Count > 0) {
                     try
                     {
                         // Get back an array of inferred values
                         result = Deduce();
-                        wasnt_conflicted = true;
+                        conflicted = false;
                     }
                     // If there was a conflict
                     catch (ConflictException conflict)
                     {
-                        wasnt_conflicted = false;
+                        Console.WriteLine("Detected conflict: {0}", conflict);
+                        conflicted = true;
                         // "a conflict at level 0 results in a backtracking level of−1,which causes CDCL to report unsatisfiability"
                         if (_assignment_stack.Peek().Depth == 0)
                         {
                             throw new UnsatisfiableException();
                         }
+
+                        // Analyze the conflict and get a conflict clause
                         CNFClause conflict_clause = AnalyzeConflict(conflict, _assignment_stack.Peek().Depth);
 
-                        _clause_db.Add(conflict_clause);
-                        Console.WriteLine("Learned Conflict Clause ({0}).", conflict_clause);
+                        Console.WriteLine("Learned Conflict Clause {0}.", conflict_clause);
 
                         int backtrack_level = 0;
 
                         // If our conflict clause is a unit clause
                         if (conflict_clause.Count == 1)
                         {
-                            // Add it directly to the assignment queue (we don't keep unit clauses in the clause database
+                            // Add it directly to the assignment queue (we don't keep unit clauses in the clause database)
                             KeyValuePair<String, CNFStates> var = conflict_clause.First();
                             _assignment_queue.Add(new AssignmentEntry(var.Key, CNFStateToTruth(var.Value), conflict_clause, false, 0));
                             // And backtrack to level 0.
@@ -343,28 +346,35 @@ namespace cdclsolver
                         }
                         else
                         {
+                            // Add the clause to our database.
+                            _clause_db.Add(conflict_clause);
+
                             // Otherwise, look for the biggest assignment below the current depth
                             int target_depth = _assignment_stack.Peek().Depth;
                             backtrack_level = conflict_clause.Max(var => {
-                                // Only count
+                                // Only count values that we have assignments for (there shouldn't be any we don't that matter)
                                 if (!_assignment_stack.ContainsVariable(var.Key))
                                 {
                                     return -1;
                                 }
                                 else
                                 {
+                                    // Cache the depth of the variable on the assignment stack
                                     int depth = _assignment_stack.GetEntryByVariable(var.Key).Depth;                                    
+                                    // If it's below our taget depth, then it counts
                                     if (depth < target_depth)
                                     {
                                         return depth;
                                     }
                                     else
                                     {
+                                        // Otherwise it doesn't.
                                         return -1;
                                     }
                                 }
                             });
-                            System.Diagnostics.Debug.Assert(backtrack_level >= 0, "Backtrack level below 1 detected!");
+                            // Sanity check; this shouldn't happen.
+                            System.Diagnostics.Debug.Assert(backtrack_level >= 0, "Backtrack level below 0 detected!");
                         }
 
                         Console.WriteLine("Backtracking to depth {0}.", backtrack_level);
@@ -379,33 +389,45 @@ namespace cdclsolver
                         {
                             _assignment_queue.RemoveAt(0);
                         }
-
-                        //throw new Exception(conflict.ToString());
                     }
                 }
                 
+                // If there were implications in our non-conflicted pass...
                 if (result != null)
                 {
+                    // Go through each and add them.
                     foreach (ImplicationResult implication in result.Values)
                     {
                         AssignmentEntry entry = new AssignmentEntry(implication.Variable, implication.Truth, implication.Clause, false, _assignment_stack.Peek().Depth);
                         // "When a new assignment is added to the stack, its implications are added by Deduce to the assignment queue"
                         Console.WriteLine("Adding {0} to the queue", entry);
+                        // Add the entry to the stack
                         _assignment_queue.Add(entry);
                     }
                 }
             }
         }
 
-        // Convienence Wrapper
-        public AssignmentStack Solve(CNFFormula formula)
+        // Returns the list of clauses used by the solver. Useful for iterating to find alternate assignments.
+        public HashSet<CNFClause> GetClauses()
         {
+            HashSet<CNFClause> result = new HashSet<CNFClause>(_clause_db);
+            result.UnionWith(_assignment_stack.ConvertAll<CNFClause>(entry => entry.RelatedClause));
+
+            return result;
+        }
+
+        // Convienence Wrapper. Takes a more complete formula and solves it directly, discarding the solver at the end.
+        public static AssignmentStack Solve(CNFFormula formula)
+        {
+            Solver s = new Solver();
+
             foreach (CNFClause clause in formula)
             {
-                AddClause(clause);
+                s.AddClause(clause);
             }
 
-            return Solve();
+            return s.Solve();
         }
         #endregion
     }

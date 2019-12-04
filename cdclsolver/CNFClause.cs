@@ -11,6 +11,7 @@ namespace cdclsolver
 
         public override int GetHashCode()
         {
+            // Create a hash that is based on the XOR of all of the variable names and values.
             int hash=0;
             foreach (KeyValuePair<String, CNFStates> var in this)
             {
@@ -77,7 +78,7 @@ namespace cdclsolver
                     vals.Add("~" + var.Key);
                 }
             }
-            return String.Join("v", vals);
+            return "(" + String.Join("v", vals) + ")";
         }
     }
 }

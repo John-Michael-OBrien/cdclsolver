@@ -4,9 +4,10 @@ using System.Text;
 
 namespace cdclsolver
 {
-    public enum CNFStates
+    public enum CNFTruth
     {
-        Asserted=-1,
-        Negated=0,
+        Unknown = 1,
+        True = -1,
+        False = 0
     }
 }

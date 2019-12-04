@@ -1,9 +1,10 @@
 ﻿# CDCL Solver
-By John-Michael O'Brien
-ECEN 5135
+By John-Michael O'Brien, ECEN 5139
 
 ## Usage:
 `cdclsolver <clause>[,<clause>,[<clause>,[...]]]`
+
+The binary can be found in `cdclsolver\cdclsolver\bin\Debug\netcoreapp3.0\`
 
 ## Clause format:
 `[~]<variable name>,[[~]<variable name>, [[~]<variable name>, [...]]]`

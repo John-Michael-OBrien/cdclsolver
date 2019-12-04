@@ -27,7 +27,7 @@ namespace cdclsolver
                 _ => "E"
             };
 
-            return String.Format("{0}{1} implied by ({2})", truth, Variable, Clause);
+            return String.Format("{0}{1} implied by {2}", truth, Variable, Clause);
         }
     }
 }

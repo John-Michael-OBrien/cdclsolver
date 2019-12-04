@@ -4,6 +4,7 @@ using System.Text;
 
 namespace cdclsolver
 {
+    // Represents a single entry in the assignment stack and queue.
     public class AssignmentEntry : object
     {
         public String Variable { get; private set; }
@@ -36,7 +37,7 @@ namespace cdclsolver
             }
             else
             {
-                return String.Format("{0}{1}@{2} ({3})", truth, Variable, Depth, RelatedClause);
+                return String.Format("{0}{1}@{2} {3}", truth, Variable, Depth, RelatedClause);
             }
             
         }

@@ -6,6 +6,7 @@ namespace cdclsolver
 {
     public class AssignmentStack : List<AssignmentEntry>
     {
+        // Our index by variable name. This turns an O(n) search into an O(1) search.
         private Dictionary<string, AssignmentEntry> _assignment_index = new Dictionary<string, AssignmentEntry>();
 
         public override string ToString()
