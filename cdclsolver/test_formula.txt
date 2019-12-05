@@ -1,4 +1,4 @@
-﻿# Test file, by JM. Derived from the classrom example.
+﻿# Test file, by JM. Derived from the classroom example.
 ~a,~b,c a,~b,c
 
 
@@ -11,7 +11,7 @@
 ~c,d                  
 ~c,~d
 
-# Dummy unit literal with # and ~ in it. Can't start with either, but no reason it can't
+# Dummy unit literal with # and ~ in it. Can't start with either, but no reason you can't
 # include it elsewhere, though I'd recommend against it for readability reasons.
 E#~
 

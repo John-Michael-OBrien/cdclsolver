@@ -90,7 +90,6 @@ namespace cdclsolver
                 Console.WriteLine();
                 Console.WriteLine("Final Result: Unsatisfiable");
             }
-            
         }
     }
 }
